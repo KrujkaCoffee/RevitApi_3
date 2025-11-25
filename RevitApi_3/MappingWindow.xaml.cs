@@ -1,73 +1,89 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net;
-using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using Autodesk.Revit.DB;
 using Newtonsoft.Json;
 
-namespace RevitErpIntegration
+using WpfGrid = System.Windows.Controls.Grid;
+using WpfTextBox = System.Windows.Controls.TextBox;
+
+namespace RevitApi_3
 {
     public partial class MappingWindow : Window
     {
         private readonly Document _doc;
         private readonly List<RevitItem> _revitItems;
         private List<ErpItem> _erpItems;
+        private readonly string _contextInfo;
 
-        public MappingWindow(Document doc, List<RevitItem> items)
+        public MappingWindow(Document doc, List<RevitItem> items, string contextInfo)
         {
             InitializeComponent();
 
             _doc = doc;
-            _revitItems = items;
+            _revitItems = items ?? new List<RevitItem>();
             _erpItems = new List<ErpItem>();
+            _contextInfo = contextInfo;
 
             RevitGrid.ItemsSource = _revitItems;
 
-            // попытаемся прочитать endpoint и title из ProjectInfo
-            ProjectInfo pi = _doc.ProjectInformation;
-            Parameter pUrl = pi.LookupParameter(ErpParameters.EndpointParamName);
-            Parameter pTitle = pi.LookupParameter(ErpParameters.DocTitleParamName);
-            if (pUrl != null) EndpointBox.Text = pUrl.AsString();
-            if (pTitle != null) TitleBox.Text = pTitle.AsString();
+            // пример использования алиасов (для явности типов)
+            WpfGrid grid = RootGrid;
+            WpfTextBox endpointBox = EndpointBox;
+            WpfTextBox titleBox = TitleBox;
+            // (переменные не обязательны для логики, но показывают явные типы)
+
+            LoadProjectParams();
+            this.Title = "Сопоставление кодов 1C-ERP — " + _contextInfo;
         }
+
+        private void LoadProjectParams()
+        {
+            try
+            {
+                ProjectInfo pi = _doc.ProjectInformation;
+                Parameter pUrl = pi.LookupParameter(ErpParameters.EndpointParamName);
+                Parameter pTitle = pi.LookupParameter(ErpParameters.DocTitleParamName);
+
+                if (pUrl != null && pUrl.StorageType == StorageType.String)
+                    EndpointBox.Text = pUrl.AsString();
+                if (pTitle != null && pTitle.StorageType == StorageType.String)
+                    TitleBox.Text = pTitle.AsString();
+            }
+            catch
+            {
+                // если параметров нет - просто игнорируем
+            }
+        }
+
+        // ===== Загрузка списка из 1С =====
 
         private void BtnLoadErp_Click(object sender, RoutedEventArgs e)
         {
             string url = EndpointBox.Text.Trim();
             if (string.IsNullOrEmpty(url))
             {
-                MessageBox.Show("Введите URL сервиса 1C-ERP в поле ERP Endpoint.", "ERP", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Введите URL сервиса 1C-ERP.", "ERP", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
             try
             {
-                // Простой POST без специфического payload — заменишь на свой формат.
-                var requestObj = new { action = "get_nomenclature_list" };
-                string json = JsonConvert.SerializeObject(requestObj);
-
-                using (WebClient wc = new WebClient())
-                {
-                    wc.Encoding = Encoding.UTF8;
-                    wc.Headers[HttpRequestHeader.ContentType] = "application/json; charset=utf-8";
-                    string response = wc.UploadString(url, "POST", json);
-                    // ожидаем массив объектов { "Code": "...", "Name": "...", "Extra": "..." }
-                    _erpItems = JsonConvert.DeserializeObject<List<ErpItem>>(response);
-                    if (_erpItems == null) _erpItems = new List<ErpItem>();
-                }
-
+                _erpItems = ErpClient.LoadErpItems(url);
                 ErpGrid.ItemsSource = _erpItems;
                 ErpGrid.Items.Refresh();
-                MessageBox.Show("Список из 1C-ERP загружен: " + _erpItems.Count + " записей.", "ERP");
+
+                MessageBox.Show("Загружено позиций: " + _erpItems.Count, "ERP");
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Ошибка при запросе к 1C-ERP: " + ex.Message, "ERP", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("Ошибка запроса к 1C-ERP: " + ex.Message, "ERP", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
+
+        // ===== Авто-сопоставление по имени =====
 
         private void BtnAutoMap_Click(object sender, RoutedEventArgs e)
         {
@@ -99,26 +115,34 @@ namespace RevitErpIntegration
             }
 
             RevitGrid.Items.Refresh();
-            MessageBox.Show("Автоматически сопоставлено " + count + " позиций.", "ERP");
+            MessageBox.Show("Автоматически сопоставлено: " + count, "ERP");
         }
 
-        private string NormalizeName(string s)
+        private static string NormalizeName(string s)
         {
             if (string.IsNullOrEmpty(s)) return "";
             s = s.ToLowerInvariant().Trim();
-            // по желанию: убрать лишние пробелы/символы
+            // здесь можно добавить доп. нормализацию: убрать скобки, ГОСТ, и т.д.
             return s;
         }
+
+        // ===== Двойной клик по 1С-строке =====
 
         private void ErpGrid_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
             ErpItem erp = ErpGrid.SelectedItem as ErpItem;
             if (erp == null) return;
 
-            var selected = RevitGrid.SelectedItems.Cast<RevitItem>().ToList();
+            List<RevitItem> selected = new List<RevitItem>();
+            foreach (object obj in RevitGrid.SelectedItems)
+            {
+                RevitItem ri = obj as RevitItem;
+                if (ri != null) selected.Add(ri);
+            }
+
             if (selected.Count == 0)
             {
-                MessageBox.Show("Выберите одну или несколько строк Revit слева, затем двойной клик по строке 1C справа.", "ERP");
+                MessageBox.Show("Выберите одну или несколько строк слева (Revit), затем двойной клик по строке 1C справа.", "ERP");
                 return;
             }
 
@@ -128,19 +152,22 @@ namespace RevitErpIntegration
             RevitGrid.Items.Refresh();
         }
 
+        // ===== Запись кодов в модель =====
+
         private void BtnSave_Click(object sender, RoutedEventArgs e)
         {
             int count = 0;
+
             using (Transaction t = new Transaction(_doc, "Set ERP codes"))
             {
                 t.Start();
 
-                // по типам
-                var byType = _revitItems
+                // по типам (наследование на все экземпляры)
+                var groups = _revitItems
                     .Where(r => !string.IsNullOrEmpty(r.ErpCode))
                     .GroupBy(r => r.TypeId.IntegerValue);
 
-                foreach (var g in byType)
+                foreach (var g in groups)
                 {
                     ElementId typeId = new ElementId(g.Key);
                     Element type = _doc.GetElement(typeId);
@@ -154,11 +181,12 @@ namespace RevitErpIntegration
                     }
                     else
                     {
-                        // fallback — в экземпляры
+                        // fallback: пишем в экземпляры
                         foreach (RevitItem ri in g)
                         {
                             Element inst = _doc.GetElement(ri.ElementId);
                             if (inst == null) continue;
+
                             Parameter pi = inst.LookupParameter(ErpParameters.ErpCodeParamName);
                             if (pi != null && !pi.IsReadOnly && pi.StorageType == StorageType.String)
                             {
@@ -169,15 +197,22 @@ namespace RevitErpIntegration
                     }
                 }
 
-                // заодно сохраним Endpoint и Title обратно в проект
-                ProjectInfo piProject = _doc.ProjectInformation;
-                Parameter pUrl = piProject.LookupParameter(ErpParameters.EndpointParamName);
-                if (pUrl != null && !pUrl.IsReadOnly && pUrl.StorageType == StorageType.String)
-                    pUrl.Set(EndpointBox.Text);
+                // заодно сохраним endpoint/title в ProjectInfo, если параметры созданы
+                try
+                {
+                    ProjectInfo piProj = _doc.ProjectInformation;
+                    Parameter pUrl = piProj.LookupParameter(ErpParameters.EndpointParamName);
+                    if (pUrl != null && !pUrl.IsReadOnly && pUrl.StorageType == StorageType.String)
+                        pUrl.Set(EndpointBox.Text);
 
-                Parameter pTitle = piProject.LookupParameter(ErpParameters.DocTitleParamName);
-                if (pTitle != null && !pTitle.IsReadOnly && pTitle.StorageType == StorageType.String)
-                    pTitle.Set(TitleBox.Text);
+                    Parameter pTitle = piProj.LookupParameter(ErpParameters.DocTitleParamName);
+                    if (pTitle != null && !pTitle.IsReadOnly && pTitle.StorageType == StorageType.String)
+                        pTitle.Set(TitleBox.Text);
+                }
+                catch
+                {
+                    // если таких параметров нет — тихо игнорируем
+                }
 
                 t.Commit();
             }

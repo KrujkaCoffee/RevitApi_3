@@ -1,51 +1,33 @@
-using System;
-using System.IO;
-using System.Reflection;
-using System.Windows.Media.Imaging;
+п»їusing System.Reflection;
 using Autodesk.Revit.UI;
 
-namespace RevitErpIntegration
+namespace RevitApi_3
 {
     public class App : IExternalApplication
     {
         public Result OnStartup(UIControlledApplication application)
         {
             const string tabName = "ERP";
-            try
-            {
-                application.CreateRibbonTab(tabName);
-            }
-            catch
-            {
-                // вкладка уже есть
-            }
+            try { application.CreateRibbonTab(tabName); } catch { }
 
             RibbonPanel panel = application.CreateRibbonPanel(tabName, "1C Integration");
 
-            string assemblyPath = Assembly.GetExecutingAssembly().Location;
+            string path = Assembly.GetExecutingAssembly().Location;
 
-            // Кнопка 1 — сопоставление кодов
-            PushButtonData mapBtnData = new PushButtonData(
-                "ErpMappingCommand",
-                "Коды 1C-ERP",
-                assemblyPath,
-                "RevitErpIntegration.ErpMappingCommand"
-            );
+            PushButtonData b1 = new PushButtonData(
+                "ErpMappingAll",
+                "РљРѕРґС‹ 1C (РІСЃРµ)",
+                path,
+                "RevitApi_3.ErpMappingAllCommand");
 
-            PushButton mapBtn = panel.AddItem(mapBtnData) as PushButton;
-            if (mapBtn != null)
-                mapBtn.ToolTip = "Сопоставление номенклатур с кодами 1C-ERP";
+            PushButtonData b2 = new PushButtonData(
+                "ErpMappingActive",
+                "РљРѕРґС‹ 1C (Р°РєС‚РёРІРЅР°СЏ)",
+                path,
+                "RevitApi_3.ErpMappingActiveCommand");
 
-            PushButtonData exportBtnData = new PushButtonData(
-                "ExportSpecsCommand",
-                "Выгрузка спецификаций",
-                assemblyPath,
-                "RevitErpIntegration.ExportSpecsCommand"
-            );
-
-            PushButton exportBtn = panel.AddItem(exportBtnData) as PushButton;
-            if (exportBtn != null)
-                exportBtn.ToolTip = "POST выгрузка спецификаций в 1C-ERP";
+            panel.AddItem(b1);
+            panel.AddItem(b2);
 
             return Result.Succeeded;
         }
