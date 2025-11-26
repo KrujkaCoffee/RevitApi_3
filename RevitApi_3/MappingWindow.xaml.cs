@@ -3,9 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
-using Autodesk.Revit.DB;
-using Newtonsoft.Json;
-
+// алиасы:
 using WpfGrid = System.Windows.Controls.Grid;
 using WpfTextBox = System.Windows.Controls.TextBox;
 
@@ -13,49 +11,47 @@ namespace RevitApi_3
 {
     public partial class MappingWindow : Window
     {
-        private readonly Document _doc;
         private readonly List<RevitItem> _revitItems;
         private List<ErpItem> _erpItems;
         private readonly string _contextInfo;
 
-        public MappingWindow(Document doc, List<RevitItem> items, string contextInfo)
+        public IList<RevitItem> ResultItems
+        {
+            get { return _revitItems; }
+        }
+
+        public string Endpoint
+        {
+            get { return EndpointBox.Text != null ? EndpointBox.Text.Trim() : string.Empty; }
+        }
+
+        public string DocTitle
+        {
+            get { return TitleBox.Text != null ? TitleBox.Text.Trim() : string.Empty; }
+        }
+
+        public MappingWindow(List<RevitItem> items,
+                             string contextInfo,
+                             string initialEndpoint,
+                             string initialTitle)
         {
             InitializeComponent();
 
-            _doc = doc;
             _revitItems = items ?? new List<RevitItem>();
             _erpItems = new List<ErpItem>();
-            _contextInfo = contextInfo;
+            _contextInfo = contextInfo ?? "";
 
             RevitGrid.ItemsSource = _revitItems;
 
-            // пример использования алиасов (для явности типов)
+            // пример использования алиасов для наглядности
             WpfGrid grid = RootGrid;
             WpfTextBox endpointBox = EndpointBox;
             WpfTextBox titleBox = TitleBox;
-            // (переменные не обязательны для логики, но показывают явные типы)
 
-            LoadProjectParams();
+            EndpointBox.Text = initialEndpoint ?? string.Empty;
+            TitleBox.Text = initialTitle ?? string.Empty;
+
             this.Title = "Сопоставление кодов 1C-ERP — " + _contextInfo;
-        }
-
-        private void LoadProjectParams()
-        {
-            try
-            {
-                ProjectInfo pi = _doc.ProjectInformation;
-                Parameter pUrl = pi.LookupParameter(ErpParameters.EndpointParamName);
-                Parameter pTitle = pi.LookupParameter(ErpParameters.DocTitleParamName);
-
-                if (pUrl != null && pUrl.StorageType == StorageType.String)
-                    EndpointBox.Text = pUrl.AsString();
-                if (pTitle != null && pTitle.StorageType == StorageType.String)
-                    TitleBox.Text = pTitle.AsString();
-            }
-            catch
-            {
-                // если параметров нет - просто игнорируем
-            }
         }
 
         // ===== Загрузка списка из 1С =====
@@ -122,11 +118,11 @@ namespace RevitApi_3
         {
             if (string.IsNullOrEmpty(s)) return "";
             s = s.ToLowerInvariant().Trim();
-            // здесь можно добавить доп. нормализацию: убрать скобки, ГОСТ, и т.д.
+            // сюда можно добавить свою нормализацию
             return s;
         }
 
-        // ===== Двойной клик по 1С-строке =====
+        // ===== Двойной клик по строке ERP =====
 
         private void ErpGrid_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
@@ -152,77 +148,19 @@ namespace RevitApi_3
             RevitGrid.Items.Refresh();
         }
 
-        // ===== Запись кодов в модель =====
+        // ===== "Записать в модель" — просто закрытие с DialogResult =====
 
         private void BtnSave_Click(object sender, RoutedEventArgs e)
         {
-            int count = 0;
-
-            using (Transaction t = new Transaction(_doc, "Set ERP codes"))
-            {
-                t.Start();
-
-                // по типам (наследование на все экземпляры)
-                var groups = _revitItems
-                    .Where(r => !string.IsNullOrEmpty(r.ErpCode))
-                    .GroupBy(r => r.TypeId.IntegerValue);
-
-                foreach (var g in groups)
-                {
-                    ElementId typeId = new ElementId(g.Key);
-                    Element type = _doc.GetElement(typeId);
-                    if (type == null) continue;
-
-                    Parameter p = type.LookupParameter(ErpParameters.ErpCodeParamName);
-                    if (p != null && !p.IsReadOnly && p.StorageType == StorageType.String)
-                    {
-                        p.Set(g.First().ErpCode);
-                        count++;
-                    }
-                    else
-                    {
-                        // fallback: пишем в экземпляры
-                        foreach (RevitItem ri in g)
-                        {
-                            Element inst = _doc.GetElement(ri.ElementId);
-                            if (inst == null) continue;
-
-                            Parameter pi = inst.LookupParameter(ErpParameters.ErpCodeParamName);
-                            if (pi != null && !pi.IsReadOnly && pi.StorageType == StorageType.String)
-                            {
-                                pi.Set(ri.ErpCode);
-                                count++;
-                            }
-                        }
-                    }
-                }
-
-                // заодно сохраним endpoint/title в ProjectInfo, если параметры созданы
-                try
-                {
-                    ProjectInfo piProj = _doc.ProjectInformation;
-                    Parameter pUrl = piProj.LookupParameter(ErpParameters.EndpointParamName);
-                    if (pUrl != null && !pUrl.IsReadOnly && pUrl.StorageType == StorageType.String)
-                        pUrl.Set(EndpointBox.Text);
-
-                    Parameter pTitle = piProj.LookupParameter(ErpParameters.DocTitleParamName);
-                    if (pTitle != null && !pTitle.IsReadOnly && pTitle.StorageType == StorageType.String)
-                        pTitle.Set(TitleBox.Text);
-                }
-                catch
-                {
-                    // если таких параметров нет — тихо игнорируем
-                }
-
-                t.Commit();
-            }
-
-            MessageBox.Show("Записано кодов: " + count, "ERP");
+            // тут можно добавить простую валидацию Endpoint/Title
+            this.DialogResult = true;
+            this.Close();
         }
 
         private void BtnClose_Click(object sender, RoutedEventArgs e)
         {
-            Close();
+            this.DialogResult = false;
+            this.Close();
         }
     }
 }

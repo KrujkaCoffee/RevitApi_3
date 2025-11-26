@@ -15,6 +15,7 @@ namespace RevitApi_3
 
     public class ErpItem
     {
+
         public string Code { get; set; } // Код 1C-ERP
         public string Name { get; set; } // Наименование из 1С
         public string Extra { get; set; } // Доп. описание / единицы и т.п.
