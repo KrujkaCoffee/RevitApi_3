@@ -24,18 +24,21 @@ namespace RevitApi_3
 
             try
             {
-                // 1. Собираем номенклатуры
-                List<RevitItem> items = RevitCollectors.CollectFromAllSpecs(doc);
-                if (items.Count == 0)
+                // 1. Собираем все элементы из всех Спецификация_*
+                var rawItems = RevitCollectors.CollectFromAllSpecs(doc);
+                if (rawItems.Count == 0)
                 {
                     TaskDialog.Show("ERP", "Не найдено элементов в спецификациях с префиксом 'Спецификация_'.");
                     return Result.Succeeded;
                 }
 
-                // 2. Внедряем параметр под эти категории
-                ErpParameters.EnsureErpCodeParameterForItems(doc, items);
+                // 2. Гарантируем параметр для всех категорий
+                ErpParameters.EnsureErpCodeParameterForItems(doc, rawItems);
 
-                // 3. Пытаемся загрузить номенклатуры из ERP
+                // 3. Для сопоставления — по одному на тип
+                var itemsByType = RevitItemUtils.GroupByType(rawItems);
+
+                // 4. Загружаем номенклатуры ERP (под капотом)
                 List<ErpItem> erpItems;
                 try
                 {
@@ -47,18 +50,16 @@ namespace RevitApi_3
                     return Result.Succeeded;
                 }
 
-                // 4. Показываем окно
-                var win = new MappingWindow(items, erpItems, "Все спецификации проекта");
-                var helper = new System.Windows.Interop.WindowInteropHelper(win);
+                // 5. Показываем окно
+                var win = new MappingWindow(itemsByType, erpItems, "Все спецификации проекта");
+                var helper = new WindowInteropHelper(win);
                 helper.Owner = commandData.Application.MainWindowHandle;
 
                 bool? dlgResult = win.ShowDialog();
                 if (dlgResult != true)
                     return Result.Succeeded;
 
-                // 5. Записываем коды в модель
                 ApplyErpCodes(doc, win.ResultItems);
-
                 return Result.Succeeded;
             }
             catch (Exception ex)
@@ -117,5 +118,4 @@ namespace RevitApi_3
             TaskDialog.Show("ERP", "Записано кодов: " + count);
         }
     }
-
 }

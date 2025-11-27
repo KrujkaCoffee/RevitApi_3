@@ -14,19 +14,10 @@ namespace RevitApi_3
         private readonly List<RevitItem> _revitItems;
         private readonly string _contextInfo;
 
-        public string Endpoint
-        {
-            get { return EndpointBox.Text != null ? EndpointBox.Text.Trim() : string.Empty; }
-        }
-
-        public string DocTitle
-        {
-            get { return TitleBox.Text != null ? TitleBox.Text.Trim() : string.Empty; }
-        }
+        public string DocTitle => TitleBox.Text != null ? TitleBox.Text.Trim() : string.Empty;
 
         public ExportWindow(List<RevitItem> items,
                             string contextInfo,
-                            string initialEndpoint,
                             string initialTitle)
         {
             InitializeComponent();
@@ -37,26 +28,17 @@ namespace RevitApi_3
             ExportGrid.ItemsSource = _revitItems;
 
             WpfGrid grid = RootGrid;
-            WpfTextBox endpointBox = EndpointBox;
             WpfTextBox titleBox = TitleBox;
 
-            EndpointBox.Text = initialEndpoint ?? string.Empty;
             TitleBox.Text = initialTitle ?? string.Empty;
+            ContextLabel.Text = _contextInfo;
 
             this.Title = "Выгрузка ресурсной в ERP — " + _contextInfo;
         }
 
         private void BtnExport_Click(object sender, RoutedEventArgs e)
         {
-            string url = Endpoint;
             string title = DocTitle;
-
-            if (string.IsNullOrEmpty(url))
-            {
-                MessageBox.Show("Укажите ERP Endpoint.", "ERP", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
             if (string.IsNullOrEmpty(title))
             {
                 MessageBox.Show("Необходимо заполнить Title.", "ERP", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -82,6 +64,8 @@ namespace RevitApi_3
             {
                 string response = ErpClient.ExportResources(title, _contextInfo, _revitItems);
                 MessageBox.Show("Выгрузка выполнена.\nОтвет сервера:\n" + response, "ERP");
+                this.DialogResult = true;
+                this.Close();
             }
             catch (Exception ex)
             {
@@ -92,7 +76,7 @@ namespace RevitApi_3
 
         private void BtnClose_Click(object sender, RoutedEventArgs e)
         {
-            this.DialogResult = true;
+            this.DialogResult = false;
             this.Close();
         }
     }

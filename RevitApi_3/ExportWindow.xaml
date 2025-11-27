@@ -16,10 +16,11 @@
 
         <!-- Верхняя панель -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
-            <TextBlock Text="ERP Endpoint:" VerticalAlignment="Center"/>
-            <TextBox x:Name="EndpointBox" Width="350" Margin="6,0,0,0"/>
-            <TextBlock Text="Title:" Margin="12,0,0,0" VerticalAlignment="Center"/>
-            <TextBox x:Name="TitleBox" Width="250" Margin="6,0,0,0"/>
+            <TextBlock Text="Title:" VerticalAlignment="Center"/>
+            <TextBox x:Name="TitleBox" Width="300" Margin="6,0,0,0"/>
+            <TextBlock x:Name="ContextLabel" Margin="12,0,0,0"
+                       VerticalAlignment="Center"
+                       TextWrapping="Wrap"/>
         </StackPanel>
 
         <!-- Предпросмотр ресурсной -->

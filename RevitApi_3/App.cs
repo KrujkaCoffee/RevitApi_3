@@ -35,14 +35,18 @@ namespace RevitApi_3
                 "Выгрузить\nв ERP",
                 path,
                 "RevitApi_3.ErpExportResourcesCommand");
-
+            var b4 = new PushButtonData(
+                "ErpExportResourcesActive",
+                "Выгрузка\n(активная)",
+                path,
+                "RevitApi_3.ErpExportResourcesActiveCommand");
             b1.LargeImage = LoadPng("RevitApi_3.Resources.download_pic.png");
             b1.Image = LoadPng("RevitApi_3.Resources.sync_pic.png");
 
             panel.AddItem(b1);
             panel.AddItem(b2);
             panel.AddItem(b3);
-
+            panel.AddItem(b4);
 
             return Result.Succeeded;
         }

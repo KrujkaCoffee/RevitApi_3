@@ -5,7 +5,6 @@ using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using System.Windows.Interop;
-using System.Text.RegularExpressions;
 
 namespace RevitApi_3
 {
@@ -26,22 +25,29 @@ namespace RevitApi_3
 
             try
             {
-                ViewSchedule vs = activeView as ViewSchedule;
+                var vs = activeView as ViewSchedule;
                 if (vs == null)
                 {
                     TaskDialog.Show("ERP", "Активный вид не является спецификацией. Откройте нужную спецификацию и повторите.");
                     return Result.Failed;
                 }
 
-                List<RevitItem> items = RevitCollectors.CollectFromSchedule(doc, vs);
-                if (items.Count == 0)
+                // 1. Собираем все элементы из этой спецификации
+                var rawItems = RevitCollectors.CollectFromSchedule(doc, vs);
+
+                if (rawItems.Count == 0)
                 {
                     TaskDialog.Show("ERP", "В активной спецификации нет элементов для обработки.");
                     return Result.Succeeded;
                 }
 
-                ErpParameters.EnsureErpCodeParameterForItems(doc, items);
+                // 2. Гарантируем параметр на всех категориях этих элементов
+                ErpParameters.EnsureErpCodeParameterForItems(doc, rawItems);
 
+                // 3. Для сопоставления — один элемент на тип
+                var itemsByType = RevitItemUtils.GroupByType(rawItems);
+
+                // 4. Загружаем данные из ERP (адрес под капотом)
                 List<ErpItem> erpItems;
                 try
                 {
@@ -54,8 +60,8 @@ namespace RevitApi_3
                 }
 
                 string ctx = "Спецификация: " + vs.Name;
-                var win = new MappingWindow(items, erpItems, ctx);
-                var helper = new System.Windows.Interop.WindowInteropHelper(win);
+                var win = new MappingWindow(itemsByType, erpItems, ctx);
+                var helper = new WindowInteropHelper(win);
                 helper.Owner = commandData.Application.MainWindowHandle;
 
                 bool? dlgResult = win.ShowDialog();
@@ -75,7 +81,6 @@ namespace RevitApi_3
 
         private static void ApplyErpCodes(Document doc, IList<RevitItem> items)
         {
-            // можно вынести в общий helper (идентичен предыдущему)
             if (items == null) return;
 
             int count = 0;
@@ -84,6 +89,7 @@ namespace RevitApi_3
             {
                 t.Start();
 
+                // По типам
                 var groups = items
                     .Where(r => !string.IsNullOrEmpty(r.ErpCode))
                     .GroupBy(r => r.TypeId.IntegerValue);
@@ -102,6 +108,7 @@ namespace RevitApi_3
                     }
                     else
                     {
+                        // fallback по экземплярам
                         foreach (var ri in g)
                         {
                             Element inst = doc.GetElement(ri.ElementId);
@@ -123,5 +130,4 @@ namespace RevitApi_3
             TaskDialog.Show("ERP", "Записано кодов (активная спецификация): " + count);
         }
     }
-
 }
