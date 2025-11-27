@@ -7,16 +7,17 @@ using Newtonsoft.Json;
 
 namespace RevitApi_3
 {
-    public static class ErpClient
+    internal static class ErpClient
     {
+        // TODO: подставь свои реальные адреса
+        private const string CodesUrl = "http://localhost:8000/";
+        private const string ExportUrl = "http://localhost:8000/accept";
+
         /// <summary>
         /// Загружает список номенклатур из 1C-ERP.
         /// </summary>
-        public static List<ErpItem> LoadErpItems(string url)
+        public static List<ErpItem> LoadErpItems()
         {
-            if (string.IsNullOrEmpty(url))
-                throw new ArgumentException("URL не задан.", "url");
-
             var requestObj = new { action = "get_nomenclature_list" };
             string json = JsonConvert.SerializeObject(requestObj);
 
@@ -24,26 +25,22 @@ namespace RevitApi_3
             {
                 wc.Encoding = Encoding.UTF8;
                 wc.Headers[HttpRequestHeader.ContentType] = "application/json; charset=utf-8";
-                string response = wc.UploadString(url, "POST", json);
 
+                string response = wc.UploadString(CodesUrl, "POST", json);
                 List<ErpItem> items = JsonConvert.DeserializeObject<List<ErpItem>>(response);
-                if (items == null) items = new List<ErpItem>();
-                return items;
+                return items ?? new List<ErpItem>();
             }
         }
 
         /// <summary>
         /// Выгружает ресурсную (маппинг Revit → ERP) в 1C-ERP.
         /// </summary>
-        public static string ExportResources(string url,
-                                             string title,
+        public static string ExportResources(string title,
                                              string context,
                                              IEnumerable<RevitItem> items)
         {
-            if (string.IsNullOrEmpty(url))
-                throw new ArgumentException("URL не задан.", "url");
             if (items == null)
-                throw new ArgumentNullException("items");
+                throw new ArgumentNullException(nameof(items));
 
             var rows = items.Select(i => new
             {
@@ -68,7 +65,7 @@ namespace RevitApi_3
             {
                 wc.Encoding = Encoding.UTF8;
                 wc.Headers[HttpRequestHeader.ContentType] = "application/json; charset=utf-8";
-                string response = wc.UploadString(url, "POST", json);
+                string response = wc.UploadString(ExportUrl, "POST", json);
                 return response;
             }
         }

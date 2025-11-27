@@ -33,57 +33,53 @@ namespace RevitApi_3
                     return Result.Failed;
                 }
 
-
                 List<RevitItem> items = RevitCollectors.CollectFromSchedule(doc, vs);
                 if (items.Count == 0)
                 {
                     TaskDialog.Show("ERP", "В активной спецификации нет элементов для обработки.");
                     return Result.Succeeded;
                 }
+
                 ErpParameters.EnsureErpCodeParameterForItems(doc, items);
 
-                ProjectInfo pi = doc.ProjectInformation;
-                string initialEndpoint = GetStringParam(pi, ErpParameters.EndpointParamName);
+                List<ErpItem> erpItems;
+                try
+                {
+                    erpItems = ErpClient.LoadErpItems();
+                }
+                catch
+                {
+                    TaskDialog.Show("ERP", "Сервис недоступен. Код 1C-ERP получить не удалось.");
+                    return Result.Succeeded;
+                }
 
                 string ctx = "Спецификация: " + vs.Name;
-                var win = new MappingWindow(items, ctx, initialEndpoint);
-
-                var helper = new WindowInteropHelper(win);
+                var win = new MappingWindow(items, erpItems, ctx);
+                var helper = new System.Windows.Interop.WindowInteropHelper(win);
                 helper.Owner = commandData.Application.MainWindowHandle;
 
                 bool? dlgResult = win.ShowDialog();
                 if (dlgResult != true)
                     return Result.Succeeded;
 
-                ApplyErpCodes(doc, win.ResultItems, win.Endpoint);
+                ApplyErpCodes(doc, win.ResultItems);
 
                 return Result.Succeeded;
             }
             catch (Exception ex)
             {
-                TaskDialog.Show("ERP", "Ошибка: " + ex.ToString());
+                TaskDialog.Show("ERP", "Ошибка: " + ex);
                 return Result.Failed;
             }
         }
 
-        private static string GetStringParam(ProjectInfo pi, string name)
+        private static void ApplyErpCodes(Document doc, IList<RevitItem> items)
         {
-            Parameter p = pi.LookupParameter(name);
-            if (p != null && p.StorageType == StorageType.String)
-                return p.AsString();
-            return null;
-        }
-
-        private static void ApplyErpCodes(Document doc,
-                                          IList<RevitItem> items,
-                                          string endpoint)
-        {
-            if (items == null)
-                return;
+            // можно вынести в общий helper (идентичен предыдущему)
+            if (items == null) return;
 
             int count = 0;
-            int len = 0;
-            string lstIds = string.Join("\n", items.Select(item => item.TypeId.IntegerValue));
+
             using (Transaction t = new Transaction(doc, "Set ERP codes (active spec)"))
             {
                 t.Start();
@@ -91,13 +87,12 @@ namespace RevitApi_3
                 var groups = items
                     .Where(r => !string.IsNullOrEmpty(r.ErpCode))
                     .GroupBy(r => r.TypeId.IntegerValue);
+
                 foreach (var g in groups)
                 {
                     ElementId typeId = new ElementId(g.Key);
                     Element type = doc.GetElement(typeId);
-                    if (type == null) { 
-                        continue;
-                    }
+                    if (type == null) continue;
 
                     Parameter p = type.LookupParameter(ErpParameters.ErpCodeParamName);
                     if (p != null && !p.IsReadOnly && p.StorageType == StorageType.String)
@@ -107,15 +102,12 @@ namespace RevitApi_3
                     }
                     else
                     {
-                        foreach (RevitItem ri in g)
+                        foreach (var ri in g)
                         {
                             Element inst = doc.GetElement(ri.ElementId);
                             if (inst == null) continue;
-                            Parameter pi = inst.LookupParameter(ErpParameters.ErpCodeParamName);
-                            if (p.IsReadOnly)
-                            {
 
-                            }
+                            Parameter pi = inst.LookupParameter(ErpParameters.ErpCodeParamName);
                             if (pi != null && !pi.IsReadOnly && pi.StorageType == StorageType.String)
                             {
                                 pi.Set(ri.ErpCode);
@@ -125,19 +117,11 @@ namespace RevitApi_3
                     }
                 }
 
-                try
-                {
-                    ProjectInfo piProj = doc.ProjectInformation;
-                    Parameter pUrl = piProj.LookupParameter(ErpParameters.EndpointParamName);
-                    if (pUrl != null && !pUrl.IsReadOnly && pUrl.StorageType == StorageType.String)
-                        pUrl.Set(endpoint ?? string.Empty);
-                }
-                catch { }
-
                 t.Commit();
             }
 
-            TaskDialog.Show("ERP", "Записано кодов (активная спецификация): " + count + " из " + len + " Идентификаторы: " + lstIds);
+            TaskDialog.Show("ERP", "Записано кодов (активная спецификация): " + count);
         }
     }
+
 }

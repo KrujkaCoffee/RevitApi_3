@@ -6,34 +6,19 @@
         WindowStartupLocation="CenterOwner">
     <Grid x:Name="RootGrid" Margin="8">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <!-- верхняя панель -->
             <RowDefinition Height="*"/>
             <!-- таблицы -->
             <RowDefinition Height="Auto"/>
-            <!-- нижние кнопки -->
+            <!-- низ -->
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
-            <!-- левая таблица -->
             <ColumnDefinition Width="Auto"/>
-            <!-- стрелка -->
             <ColumnDefinition Width="*"/>
-            <!-- правая таблица -->
         </Grid.ColumnDefinitions>
 
-        <!-- Верхняя панель -->
-        <StackPanel Grid.Row="0" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,0,0,8">
-            <TextBlock Text="ERP Endpoint:" VerticalAlignment="Center"/>
-            <TextBox x:Name="EndpointBox" Width="350" Margin="6,0,0,0" TextChanged="EndpointBox_TextChanged" Text="http://localhost:8000"/>
-            <Button x:Name="BtnLoadErp"
-                    Content="🔄 Загрузить из 1C"
-                    Margin="12,0,0,0" Padding="6,2"
-                    Click="BtnLoadErp_Click"/>
-        </StackPanel>
-
         <!-- Левая таблица: Revit -->
-        <GroupBox Grid.Row="1" Grid.Column="0" Margin="0,0,4,0" Header="Номенклатуры Revit">
+        <GroupBox Grid.Row="0" Grid.Column="0" Margin="0,0,4,0" Header="Номенклатуры Revit">
             <DataGrid x:Name="RevitGrid"
                       AutoGenerateColumns="False"
                       SelectionMode="Extended">
@@ -43,8 +28,6 @@
                     <DataGridTextColumn Header="Наименование" Binding="{Binding DisplayName}" Width="2*"/>
                     <DataGridTextColumn Header="Код 1C-ERP" Binding="{Binding ErpCode}" Width="*"/>
                 </DataGrid.Columns>
-
-                <!-- Подсветка строк без кода ERP -->
                 <DataGrid.RowStyle>
                     <Style TargetType="DataGridRow">
                         <Style.Triggers>
@@ -61,7 +44,7 @@
         </GroupBox>
 
         <!-- Кнопка-стрелка -->
-        <StackPanel Grid.Row="1" Grid.Column="1" VerticalAlignment="Center">
+        <StackPanel Grid.Row="0" Grid.Column="1" VerticalAlignment="Center">
             <Button x:Name="BtnAssignCode"
                     Content="⟵"
                     Width="40" Height="40"
@@ -70,7 +53,7 @@
         </StackPanel>
 
         <!-- Правая таблица: ERP -->
-        <GroupBox Grid.Row="1" Grid.Column="2" Margin="4,0,0,0" Header="Номенклатуры 1C-ERP">
+        <GroupBox Grid.Row="0" Grid.Column="2" Margin="4,0,0,0" Header="Номенклатуры 1C-ERP">
             <DataGrid x:Name="ErpGrid"
                       AutoGenerateColumns="False">
                 <DataGrid.Columns>
@@ -82,7 +65,7 @@
         </GroupBox>
 
         <!-- Нижняя панель -->
-        <StackPanel Grid.Row="2" Grid.ColumnSpan="3"
+        <StackPanel Grid.Row="1" Grid.ColumnSpan="3"
                     Orientation="Horizontal"
                     HorizontalAlignment="Right"
                     Margin="0,8,0,0">

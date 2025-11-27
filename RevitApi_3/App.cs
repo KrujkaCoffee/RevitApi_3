@@ -1,5 +1,9 @@
-﻿using System.Reflection;
+﻿using System.IO;
+using System.Reflection;
+using System.Windows.Media.Imaging;
 using Autodesk.Revit.UI;
+
+
 
 namespace RevitApi_3
 {
@@ -32,9 +36,13 @@ namespace RevitApi_3
                 path,
                 "RevitApi_3.ErpExportResourcesCommand");
 
+            b1.LargeImage = LoadPng("RevitApi_3.Resources.download_pic.png");
+            b1.Image = LoadPng("RevitApi_3.Resources.sync_pic.png");
+
             panel.AddItem(b1);
             panel.AddItem(b2);
             panel.AddItem(b3);
+
 
             return Result.Succeeded;
         }
@@ -43,5 +51,20 @@ namespace RevitApi_3
         {
             return Result.Succeeded;
         }
+        private static BitmapImage LoadPng(string resourcePath)
+        {
+            var asm = Assembly.GetExecutingAssembly();
+            using (Stream s = asm.GetManifestResourceStream(resourcePath))
+            {
+                if (s == null) return null;
+                var img = new BitmapImage();
+                img.BeginInit();
+                img.StreamSource = s;
+                img.CacheOption = BitmapCacheOption.OnLoad;
+                img.EndInit();
+                return img;
+            }
+        }
     }
+
 }

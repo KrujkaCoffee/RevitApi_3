@@ -80,7 +80,7 @@ namespace RevitApi_3
 
             try
             {
-                string response = ErpClient.ExportResources(url, title, _contextInfo, _revitItems);
+                string response = ErpClient.ExportResources(title, _contextInfo, _revitItems);
                 MessageBox.Show("Выгрузка выполнена.\nОтвет сервера:\n" + response, "ERP");
             }
             catch (Exception ex)
