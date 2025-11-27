@@ -33,7 +33,6 @@ namespace RevitApi_3
                     return Result.Failed;
                 }
 
-                ErpParameters.EnsureErpCodeParameter(doc);
 
                 List<RevitItem> items = RevitCollectors.CollectFromSchedule(doc, vs);
                 if (items.Count == 0)
@@ -41,6 +40,7 @@ namespace RevitApi_3
                     TaskDialog.Show("ERP", "В активной спецификации нет элементов для обработки.");
                     return Result.Succeeded;
                 }
+                ErpParameters.EnsureErpCodeParameterForItems(doc, items);
 
                 ProjectInfo pi = doc.ProjectInformation;
                 string initialEndpoint = GetStringParam(pi, ErpParameters.EndpointParamName);
@@ -91,7 +91,6 @@ namespace RevitApi_3
                 var groups = items
                     .Where(r => !string.IsNullOrEmpty(r.ErpCode))
                     .GroupBy(r => r.TypeId.IntegerValue);
-                len = groups.Count();
                 foreach (var g in groups)
                 {
                     ElementId typeId = new ElementId(g.Key);
@@ -112,8 +111,11 @@ namespace RevitApi_3
                         {
                             Element inst = doc.GetElement(ri.ElementId);
                             if (inst == null) continue;
-
                             Parameter pi = inst.LookupParameter(ErpParameters.ErpCodeParamName);
+                            if (p.IsReadOnly)
+                            {
+
+                            }
                             if (pi != null && !pi.IsReadOnly && pi.StorageType == StorageType.String)
                             {
                                 pi.Set(ri.ErpCode);

@@ -34,7 +34,7 @@ namespace RevitApi_3
         /// </summary>
         public static List<RevitItem> CollectFromAllSpecs(Document doc)
         {
-            List<ViewSchedule> specs = GetSpecsByPrefix(doc, "Спецификация_");
+            List<ViewSchedule> specs = GetSpecsByPrefix(doc, "Спецификация");
             return CollectItemsFromSchedules(doc, specs);
         }
 

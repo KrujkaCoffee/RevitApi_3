@@ -24,7 +24,6 @@ namespace RevitApi_3
 
             try
             {
-                ErpParameters.EnsureErpCodeParameter(doc);
 
                 List<RevitItem> items = RevitCollectors.CollectFromAllSpecs(doc);
                 if (items.Count == 0)
@@ -32,6 +31,7 @@ namespace RevitApi_3
                     TaskDialog.Show("ERP", "Не найдено элементов в спецификациях с префиксом 'Спецификация_'.");
                     return Result.Succeeded;
                 }
+                ErpParameters.EnsureErpCodeParameterForItems(doc, items);
 
                 ProjectInfo pi = doc.ProjectInformation;
                 string initialEndpoint = GetStringParam(pi, ErpParameters.EndpointParamName);

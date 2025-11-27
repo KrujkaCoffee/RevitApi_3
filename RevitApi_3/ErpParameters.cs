@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.ApplicationServices;
@@ -14,21 +15,43 @@ namespace RevitApi_3
         public const string DocTitleParamName = "ERP_DocumentTitle";
 
         /// <summary>
-        /// Гарантирует существование shared-параметра "Код 1C-ERP"
-        /// и его привязку как параметра типа к нужным категориям.
+        /// Гарантирует существование shared-определения "Код 1C-ERP"
+        /// и привязку ко ВСЕМ категориям, в которых встречаются переданные RevitItem.
         /// </summary>
-        public static void EnsureErpCodeParameter(Document doc)
+        public static void EnsureErpCodeParameterForItems(Document doc, IList<RevitItem> items)
         {
+            if (items == null || items.Count == 0)
+                return;
+
             Application app = doc.Application;
 
+            // 1. Берём (или создаём) определение параметра
             Definition def = GetOrCreateErpDefinition(app);
 
-            // Категории, на которых нужен код 1C
+            // 2. Собираем набор категорий, с которыми реально работаем
             CategorySet catSet = app.Create.NewCategorySet();
-            catSet.Insert(doc.Settings.Categories.get_Item(BuiltInCategory.OST_MechanicalEquipment));
-            catSet.Insert(doc.Settings.Categories.get_Item(BuiltInCategory.OST_PipeFitting));
-            // при необходимости добавь ещё категорий
+            var usedIds = new HashSet<int>();
 
+            foreach (var ri in items)
+            {
+                Element type = doc.GetElement(ri.TypeId);
+                if (type == null || type.Category == null)
+                    continue;
+
+                Category cat = type.Category;
+                int catId = cat.Id.IntegerValue;
+
+                if (usedIds.Contains(catId))
+                    continue;
+
+                usedIds.Add(catId);
+                catSet.Insert(cat);
+            }
+
+            if (catSet.Size == 0)
+                return;
+
+            // 3. Привязываем параметр к этим категориям
             BindingMap map = doc.ParameterBindings;
             ElementBinding existing = map.get_Item(def) as ElementBinding;
 
@@ -56,10 +79,6 @@ namespace RevitApi_3
             }
         }
 
-        /// <summary>
-        /// Находит или создаёт shared-определение параметра "Код 1C-ERP".
-        /// Если файл общих параметров не задан, создаёт временный ERP-файл в ProgramData.
-        /// </summary>
         private static Definition GetOrCreateErpDefinition(Application app)
         {
             string originalPath = app.SharedParametersFilename;
@@ -95,7 +114,6 @@ namespace RevitApi_3
 
             if (useTempFile)
             {
-                // возвращаем старый путь, чтобы не ломать настройки пользователя
                 app.SharedParametersFilename = originalPath;
             }
 
