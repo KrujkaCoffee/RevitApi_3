@@ -24,10 +24,8 @@ namespace RevitApi_3
 
             try
             {
-                // гарантируем параметр "Код 1C-ERP"
                 ErpParameters.EnsureErpCodeParameter(doc);
 
-                // собираем номенклатуры по всем Спецификация_*
                 List<RevitItem> items = RevitCollectors.CollectFromAllSpecs(doc);
                 if (items.Count == 0)
                 {
@@ -35,26 +33,21 @@ namespace RevitApi_3
                     return Result.Succeeded;
                 }
 
-                // читаем стартовые значения из Project Information
                 ProjectInfo pi = doc.ProjectInformation;
                 string initialEndpoint = GetStringParam(pi, ErpParameters.EndpointParamName);
-                string initialTitle = GetStringParam(pi, ErpParameters.DocTitleParamName);
 
-                // показываем WPF-окно (ТОЛЬКО работа с данными, без Revit API)
                 var win = new MappingWindow(items,
                                             "Все спецификации проекта",
-                                            initialEndpoint,
-                                            initialTitle);
+                                            initialEndpoint);
 
                 var helper = new WindowInteropHelper(win);
                 helper.Owner = commandData.Application.MainWindowHandle;
 
                 bool? dlgResult = win.ShowDialog();
                 if (dlgResult != true)
-                    return Result.Succeeded; // пользователь отменил / просто закрыл
+                    return Result.Succeeded;
 
-                // --- после закрытия окна: выполняем транзакцию и пишем коды в модель ---
-                ApplyErpCodes(doc, win.ResultItems, win.Endpoint, win.DocTitle);
+                ApplyErpCodes(doc, win.ResultItems, win.Endpoint);
 
                 return Result.Succeeded;
             }
@@ -75,8 +68,7 @@ namespace RevitApi_3
 
         private static void ApplyErpCodes(Document doc,
                                           IList<RevitItem> items,
-                                          string endpoint,
-                                          string title)
+                                          string endpoint)
         {
             if (items == null)
                 return;
@@ -87,7 +79,6 @@ namespace RevitApi_3
             {
                 t.Start();
 
-                // по типам (наследование на все экземпляры)
                 var groups = items
                     .Where(r => !string.IsNullOrEmpty(r.ErpCode))
                     .GroupBy(r => r.TypeId.IntegerValue);
@@ -106,7 +97,6 @@ namespace RevitApi_3
                     }
                     else
                     {
-                        // fallback: пишем в экземпляры
                         foreach (RevitItem ri in g)
                         {
                             Element inst = doc.GetElement(ri.ElementId);
@@ -122,22 +112,15 @@ namespace RevitApi_3
                     }
                 }
 
-                // сохраним endpoint/title в ProjectInfo, если параметры уже созданы
+                // Обновим endpoint в ProjectInfo (если параметр создан)
                 try
                 {
                     ProjectInfo piProj = doc.ProjectInformation;
                     Parameter pUrl = piProj.LookupParameter(ErpParameters.EndpointParamName);
                     if (pUrl != null && !pUrl.IsReadOnly && pUrl.StorageType == StorageType.String)
                         pUrl.Set(endpoint ?? string.Empty);
-
-                    Parameter pTitle = piProj.LookupParameter(ErpParameters.DocTitleParamName);
-                    if (pTitle != null && !pTitle.IsReadOnly && pTitle.StorageType == StorageType.String)
-                        pTitle.Set(title ?? string.Empty);
                 }
-                catch
-                {
-                    // если нет таких параметров — молча игнорируем
-                }
+                catch { }
 
                 t.Commit();
             }

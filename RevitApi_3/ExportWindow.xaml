@@ -1,0 +1,69 @@
+﻿<Window x:Class="RevitApi_3.ExportWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Выгрузка ресурсной в ERP"
+        Height="500" Width="900"
+        WindowStartupLocation="CenterOwner">
+    <Grid x:Name="RootGrid" Margin="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <!-- верх -->
+            <RowDefinition Height="*"/>
+            <!-- таблица -->
+            <RowDefinition Height="Auto"/>
+            <!-- низ -->
+        </Grid.RowDefinitions>
+
+        <!-- Верхняя панель -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="ERP Endpoint:" VerticalAlignment="Center"/>
+            <TextBox x:Name="EndpointBox" Width="350" Margin="6,0,0,0"/>
+            <TextBlock Text="Title:" Margin="12,0,0,0" VerticalAlignment="Center"/>
+            <TextBox x:Name="TitleBox" Width="250" Margin="6,0,0,0"/>
+        </StackPanel>
+
+        <!-- Предпросмотр ресурсной -->
+        <GroupBox Grid.Row="1" Header="Предпросмотр ресурсной для выгрузки в ERP">
+            <DataGrid x:Name="ExportGrid"
+                      AutoGenerateColumns="False"
+                      IsReadOnly="True">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Спецификация" Binding="{Binding ScheduleName}" Width="*"/>
+                    <DataGridTextColumn Header="Семейство" Binding="{Binding FamilyName}" Width="*"/>
+                    <DataGridTextColumn Header="Тип" Binding="{Binding TypeName}" Width="*"/>
+                    <DataGridTextColumn Header="Наименование" Binding="{Binding DisplayName}" Width="2*"/>
+                    <DataGridTextColumn Header="Код 1C-ERP" Binding="{Binding ErpCode}" Width="*"/>
+                </DataGrid.Columns>
+
+                <!-- Подсветка строк без корректного кода -->
+                <DataGrid.RowStyle>
+                    <Style TargetType="DataGridRow">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding ErpCode}" Value="">
+                                <Setter Property="Background" Value="LightCoral"/>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding ErpCode}" Value="-">
+                                <Setter Property="Background" Value="LightCoral"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </DataGrid.RowStyle>
+            </DataGrid>
+        </GroupBox>
+
+        <!-- Нижняя панель -->
+        <StackPanel Grid.Row="2"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Margin="0,8,0,0">
+            <Button x:Name="BtnExport"
+                    Content="📤 Выгрузить в ERP"
+                    Width="170" Margin="0,0,8,0"
+                    Click="BtnExport_Click"/>
+            <Button x:Name="BtnClose"
+                    Content="✖ Закрыть"
+                    Width="90"
+                    Click="BtnClose_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

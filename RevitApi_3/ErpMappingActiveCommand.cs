@@ -5,6 +5,7 @@ using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using System.Windows.Interop;
+using System.Text.RegularExpressions;
 
 namespace RevitApi_3
 {
@@ -43,12 +44,9 @@ namespace RevitApi_3
 
                 ProjectInfo pi = doc.ProjectInformation;
                 string initialEndpoint = GetStringParam(pi, ErpParameters.EndpointParamName);
-                string initialTitle = GetStringParam(pi, ErpParameters.DocTitleParamName);
 
-                var win = new MappingWindow(items: items,
-                                            contextInfo: "Спецификация: " + vs.Name,
-                                            initialEndpoint: initialEndpoint,
-                                            initialTitle: initialTitle);
+                string ctx = "Спецификация: " + vs.Name;
+                var win = new MappingWindow(items, ctx, initialEndpoint);
 
                 var helper = new WindowInteropHelper(win);
                 helper.Owner = commandData.Application.MainWindowHandle;
@@ -57,7 +55,7 @@ namespace RevitApi_3
                 if (dlgResult != true)
                     return Result.Succeeded;
 
-                ApplyErpCodes(doc, win.ResultItems, win.Endpoint, win.DocTitle);
+                ApplyErpCodes(doc, win.ResultItems, win.Endpoint);
 
                 return Result.Succeeded;
             }
@@ -78,14 +76,14 @@ namespace RevitApi_3
 
         private static void ApplyErpCodes(Document doc,
                                           IList<RevitItem> items,
-                                          string endpoint,
-                                          string title)
+                                          string endpoint)
         {
             if (items == null)
                 return;
 
             int count = 0;
-
+            int len = 0;
+            string lstIds = string.Join("\n", items.Select(item => item.TypeId.IntegerValue));
             using (Transaction t = new Transaction(doc, "Set ERP codes (active spec)"))
             {
                 t.Start();
@@ -93,12 +91,14 @@ namespace RevitApi_3
                 var groups = items
                     .Where(r => !string.IsNullOrEmpty(r.ErpCode))
                     .GroupBy(r => r.TypeId.IntegerValue);
-
+                len = groups.Count();
                 foreach (var g in groups)
                 {
                     ElementId typeId = new ElementId(g.Key);
                     Element type = doc.GetElement(typeId);
-                    if (type == null) continue;
+                    if (type == null) { 
+                        continue;
+                    }
 
                     Parameter p = type.LookupParameter(ErpParameters.ErpCodeParamName);
                     if (p != null && !p.IsReadOnly && p.StorageType == StorageType.String)
@@ -129,17 +129,13 @@ namespace RevitApi_3
                     Parameter pUrl = piProj.LookupParameter(ErpParameters.EndpointParamName);
                     if (pUrl != null && !pUrl.IsReadOnly && pUrl.StorageType == StorageType.String)
                         pUrl.Set(endpoint ?? string.Empty);
-
-                    Parameter pTitle = piProj.LookupParameter(ErpParameters.DocTitleParamName);
-                    if (pTitle != null && !pTitle.IsReadOnly && pTitle.StorageType == StorageType.String)
-                        pTitle.Set(title ?? string.Empty);
                 }
                 catch { }
 
                 t.Commit();
             }
 
-            TaskDialog.Show("ERP", "Записано кодов (активная спецификация): " + count);
+            TaskDialog.Show("ERP", "Записано кодов (активная спецификация): " + count + " из " + len + " Идентификаторы: " + lstIds);
         }
     }
 }

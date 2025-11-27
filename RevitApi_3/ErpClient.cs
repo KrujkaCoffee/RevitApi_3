@@ -11,7 +11,6 @@ namespace RevitApi_3
     {
         /// <summary>
         /// Загружает список номенклатур из 1C-ERP.
-        /// Сейчас payload простой: { action = "get_nomenclature_list" }.
         /// </summary>
         public static List<ErpItem> LoadErpItems(string url)
         {
@@ -35,7 +34,6 @@ namespace RevitApi_3
 
         /// <summary>
         /// Выгружает ресурсную (маппинг Revit → ERP) в 1C-ERP.
-        /// Отправляет title, context и строки с кодами ERP.
         /// </summary>
         public static string ExportResources(string url,
                                              string title,
