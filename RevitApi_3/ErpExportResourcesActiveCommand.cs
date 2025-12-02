@@ -40,7 +40,11 @@ namespace RevitApi_3
                 }
 
                 ProjectInfo pi = doc.ProjectInformation;
-                string initialTitle = GetStringParam(pi, ErpParameters.DocTitleParamName);
+                string paramTitle = GetStringParam(pi, ErpParameters.DocTitleParamName);
+
+                string defaultTitle = "Спецификация_" + GetProjectTitle(doc);
+                string initialTitle = string.IsNullOrEmpty(paramTitle) ? defaultTitle : paramTitle;
+
 
                 string ctx = "Спецификация: " + vs.Name;
                 var win = new ExportWindow(items, ctx, initialTitle);
@@ -80,6 +84,20 @@ namespace RevitApi_3
             if (p != null && p.StorageType == StorageType.String)
                 return p.AsString();
             return null;
+        }
+        private static string GetProjectTitle(Document doc)
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(doc.Title))
+                    return doc.Title;
+
+                if (!string.IsNullOrEmpty(doc.PathName))
+                    return System.IO.Path.GetFileNameWithoutExtension(doc.PathName);
+            }
+            catch { }
+
+            return "Проект";
         }
     }
 }

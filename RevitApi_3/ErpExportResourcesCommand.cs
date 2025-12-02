@@ -72,5 +72,21 @@ namespace RevitApi_3
                 return p.AsString();
             return null;
         }
+        private static string GetProjectTitle(Document doc)
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(doc.Title))
+                    return doc.Title;
+
+                if (!string.IsNullOrEmpty(doc.PathName))
+                    return System.IO.Path.GetFileNameWithoutExtension(doc.PathName);
+            }
+            catch { }
+
+            return "Проект";
+        }
     }
+
+
 }

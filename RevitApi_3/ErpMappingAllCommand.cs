@@ -24,7 +24,7 @@ namespace RevitApi_3
 
             try
             {
-                // 1. Собираем все элементы из всех Спецификация_*
+                // 1. Собираем элементы по всем Спецификация_*
                 var rawItems = RevitCollectors.CollectFromAllSpecs(doc);
                 if (rawItems.Count == 0)
                 {
@@ -32,27 +32,27 @@ namespace RevitApi_3
                     return Result.Succeeded;
                 }
 
-                // 2. Гарантируем параметр для всех категорий
+                // 2. Гарантируем параметр
                 ErpParameters.EnsureErpCodeParameterForItems(doc, rawItems);
 
                 // 3. Для сопоставления — по одному на тип
                 var itemsByType = RevitItemUtils.GroupByType(rawItems);
 
-                // 4. Загружаем номенклатуры ERP (под капотом)
-                List<ErpItem> erpItems;
+                // 4. Грузим дерево ERP до открытия окна
+                List<ErpTreeNode> treeRoots;
                 try
                 {
-                    erpItems = ErpClient.LoadErpItems();
+                    treeRoots = ErpClient.LoadErpTree();
                 }
                 catch
                 {
-                    TaskDialog.Show("ERP", "Сервис недоступен. Код 1C-ERP получить не удалось.");
+                    TaskDialog.Show("ERP", "Сервис недоступен. Дерево номенклатуры получить не удалось.");
                     return Result.Succeeded;
                 }
 
-                // 5. Показываем окно
-                var win = new MappingWindow(itemsByType, erpItems, "Все спецификации проекта");
-                var helper = new WindowInteropHelper(win);
+                // 5. Окно
+                var win = new MappingWindow(itemsByType, treeRoots, "Все спецификации проекта");
+                var helper = new System.Windows.Interop.WindowInteropHelper(win);
                 helper.Owner = commandData.Application.MainWindowHandle;
 
                 bool? dlgResult = win.ShowDialog();
@@ -68,7 +68,6 @@ namespace RevitApi_3
                 return Result.Failed;
             }
         }
-
         private static void ApplyErpCodes(Document doc, IList<RevitItem> items)
         {
             if (items == null) return;
@@ -118,4 +117,5 @@ namespace RevitApi_3
             TaskDialog.Show("ERP", "Записано кодов: " + count);
         }
     }
+
 }

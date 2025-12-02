@@ -11,7 +11,8 @@ namespace RevitApi_3
 {
     public partial class ExportWindow : Window
     {
-        private readonly List<RevitItem> _revitItems;
+        private readonly List<RevitItem> _sourceItems;
+        private readonly List<ExportRow> _exportRows;
         private readonly string _contextInfo;
 
         public string DocTitle => TitleBox.Text != null ? TitleBox.Text.Trim() : string.Empty;
@@ -22,18 +23,56 @@ namespace RevitApi_3
         {
             InitializeComponent();
 
-            _revitItems = items ?? new List<RevitItem>();
+            _sourceItems = items ?? new List<RevitItem>();
             _contextInfo = contextInfo ?? "";
 
-            ExportGrid.ItemsSource = _revitItems;
-
-            WpfGrid grid = RootGrid;
-            WpfTextBox titleBox = TitleBox;
+            _exportRows = BuildExportRows(_sourceItems);
+            ExportGrid.ItemsSource = _exportRows;
 
             TitleBox.Text = initialTitle ?? string.Empty;
             ContextLabel.Text = _contextInfo;
 
             this.Title = "Выгрузка ресурсной в ERP — " + _contextInfo;
+        }
+
+        private List<ExportRow> BuildExportRows(List<RevitItem> items)
+        {
+            var result = new List<ExportRow>();
+
+            var groups = items.GroupBy(i => new
+            {
+                i.ScheduleName,
+                i.FamilyName,
+                i.TypeName,
+                i.DisplayName,
+                i.ErpCode,
+                i.Unit,
+                i.MassPerItem
+            });
+
+            foreach (var g in groups)
+            {
+                int qty = g.Count();
+                double? massPerItem = g.Key.MassPerItem;
+                double? totalMass = null;
+                if (massPerItem.HasValue)
+                    totalMass = massPerItem.Value * qty;
+
+                result.Add(new ExportRow
+                {
+                    ScheduleName = g.Key.ScheduleName,
+                    FamilyName = g.Key.FamilyName,
+                    TypeName = g.Key.TypeName,
+                    DisplayName = g.Key.DisplayName,
+                    ErpCode = g.Key.ErpCode,
+                    Unit = g.Key.Unit,
+                    Quantity = qty,
+                    MassPerItem = massPerItem,
+                    TotalMass = totalMass
+                });
+            }
+
+            return result;
         }
 
         private void BtnExport_Click(object sender, RoutedEventArgs e)
@@ -45,9 +84,8 @@ namespace RevitApi_3
                 return;
             }
 
-            // Валидация: все строки должны иметь код
-            var badRows = _revitItems
-                .Where(ri => string.IsNullOrEmpty(ri.ErpCode) || ri.ErpCode == "-")
+            var badRows = _exportRows
+                .Where(r => string.IsNullOrEmpty(r.ErpCode) || r.ErpCode == "-")
                 .ToList();
 
             if (badRows.Count > 0)
@@ -62,15 +100,15 @@ namespace RevitApi_3
 
             try
             {
-                string response = ErpClient.ExportResources(title, _contextInfo, _revitItems);
+                string response = ErpClient.ExportResources(title, _contextInfo, _exportRows);
                 MessageBox.Show("Выгрузка выполнена.\nОтвет сервера:\n" + response, "ERP");
                 this.DialogResult = true;
                 this.Close();
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Ошибка при выгрузке ресурсной: " + ex.Message, "ERP",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("Ошибка при выгрузке ресурсной: " + ex.Message,
+                    "ERP", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -80,4 +118,5 @@ namespace RevitApi_3
             this.Close();
         }
     }
+
 }

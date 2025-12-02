@@ -1,35 +1,47 @@
-﻿using System;
+﻿using RevitApi_3;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
-// алиасы
+// алиас для красоты
 using WpfGrid = System.Windows.Controls.Grid;
 
 namespace RevitApi_3
 {
     public partial class MappingWindow : Window
     {
-        private readonly List<RevitItem> _revitItems;
-        private readonly List<ErpItem> _erpItems;
+        private readonly List<RevitItem> _revitItemsFull;
+        private List<RevitItem> _revitView;
+
+        private readonly List<ErpTreeNode> _erpTreeRoots;
+        private List<ErpItem> _erpItemsFull = new List<ErpItem>();
+        private List<ErpItem> _erpView = new List<ErpItem>();
+
         private readonly string _contextInfo;
 
-        public IList<RevitItem> ResultItems => _revitItems;
+        public IList<RevitItem> ResultItems => _revitItemsFull;
 
         public MappingWindow(List<RevitItem> items,
-                             List<ErpItem> erpItems,
+                             List<ErpTreeNode> treeRoots,
                              string contextInfo)
         {
             InitializeComponent();
 
-            _revitItems = items ?? new List<RevitItem>();
-            _erpItems = erpItems ?? new List<ErpItem>();
+            _revitItemsFull = items ?? new List<RevitItem>();
+            _erpTreeRoots = treeRoots ?? new List<ErpTreeNode>();
             _contextInfo = contextInfo ?? "";
 
-            RevitGrid.ItemsSource = _revitItems;
-            ErpGrid.ItemsSource = _erpItems;
+            WpfGrid grid = RootGrid;
 
-            WpfGrid grid = RootGrid; // просто для явности типов
+            // левая таблица
+            RebuildRevitView();
+
+            // дерево ERP
+            ErpTree.ItemsSource = _erpTreeRoots;
+
+            // правая таблица кодов — пока пустая
+            RebuildErpView();
 
             this.Title = "Сопоставление кодов 1C-ERP — " + _contextInfo;
         }
@@ -40,16 +52,98 @@ namespace RevitApi_3
             return s.ToLowerInvariant().Trim();
         }
 
+        // ===== Revit: фильтр "только без кода" =====
+
+        private void RebuildRevitView()
+        {
+            bool onlyWithout = (ChkOnlyWithoutCode != null && ChkOnlyWithoutCode.IsChecked == true);
+
+            _revitView = new List<RevitItem>();
+            foreach (var ri in _revitItemsFull)
+            {
+                if (onlyWithout)
+                {
+                    if (!string.IsNullOrEmpty(ri.ErpCode) && ri.ErpCode != "-")
+                        continue;
+                }
+                _revitView.Add(ri);
+            }
+
+            RevitGrid.ItemsSource = _revitView;
+            RevitGrid.Items.Refresh();
+        }
+
+        private void ChkOnlyWithoutCode_Changed(object sender, RoutedEventArgs e)
+        {
+            RebuildRevitView();
+        }
+
+        // ===== ERP: обновление таблицы кодов с учётом поиска =====
+
+        private void RebuildErpView()
+        {
+            string term = ErpSearchBox != null ? ErpSearchBox.Text : null;
+            term = string.IsNullOrWhiteSpace(term) ? "" : term.Trim().ToLowerInvariant();
+
+            _erpView = new List<ErpItem>();
+            foreach (var e in _erpItemsFull)
+            {
+                if (!string.IsNullOrEmpty(term))
+                {
+                    string code = e.Code != null ? e.Code.ToLowerInvariant() : "";
+                    string name = e.Name != null ? e.Name.ToLowerInvariant() : "";
+                    string extra = e.Extra != null ? e.Extra.ToLowerInvariant() : "";
+                    string unit = e.Unit != null ? e.Unit.ToLowerInvariant() : "";
+
+                    if (!code.Contains(term) && !name.Contains(term) && !extra.Contains(term) && !unit.Contains(term))
+                        continue;
+                }
+
+                _erpView.Add(e);
+            }
+
+            ErpGrid.ItemsSource = _erpView;
+            ErpGrid.Items.Refresh();
+        }
+
+        private void ErpSearchBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            RebuildErpView();
+        }
+
+        // ===== клик по дереву: грузим коды по RefKey =====
+
+        private void ErpTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
+        {
+            var node = ErpTree.SelectedItem as ErpTreeNode;
+            if (node == null) return;
+
+            try
+            {
+                _erpItemsFull = ErpClient.LoadErpItems(node.RefKey);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Ошибка при загрузке кодов для выбранного узла: " + ex.Message,
+                    "ERP", MessageBoxButton.OK, MessageBoxImage.Error);
+                _erpItemsFull = new List<ErpItem>();
+            }
+
+            RebuildErpView();
+        }
+
+        // ===== Автоподбор по имени =====
+
         private void BtnAutoMap_Click(object sender, RoutedEventArgs e)
         {
-            if (_erpItems.Count == 0)
+            if (_erpItemsFull == null || _erpItemsFull.Count == 0)
             {
-                MessageBox.Show("Список номенклатур 1C-ERP пуст. Проверьте работу сервиса.", "ERP");
+                MessageBox.Show("Сначала выберите узел в дереве справа и дождитесь загрузки кодов.", "ERP");
                 return;
             }
 
             var dict = new Dictionary<string, ErpItem>();
-            foreach (ErpItem erp in _erpItems)
+            foreach (var erp in _erpItemsFull)
             {
                 string key = NormalizeName(erp.Name);
                 if (!dict.ContainsKey(key))
@@ -57,7 +151,7 @@ namespace RevitApi_3
             }
 
             int count = 0;
-            foreach (RevitItem ri in _revitItems)
+            foreach (var ri in _revitItemsFull)
             {
                 if (!string.IsNullOrEmpty(ri.ErpCode)) continue;
                 string key = NormalizeName(ri.DisplayName);
@@ -68,33 +162,38 @@ namespace RevitApi_3
                 }
             }
 
-            RevitGrid.Items.Refresh();
+            RebuildRevitView();
             MessageBox.Show("Автоматически сопоставлено: " + count, "ERP");
         }
+
+        // ===== Стрелка: применить выбранный код к выделенным строкам =====
 
         private void BtnAssignCode_Click(object sender, RoutedEventArgs e)
         {
             var erp = ErpGrid.SelectedItem as ErpItem;
             if (erp == null)
             {
-                MessageBox.Show("Выберите строку в списке 1C-ERP справа.", "ERP");
+                MessageBox.Show("Выберите код в таблице 1C-ERP (справа внизу).", "ERP");
                 return;
             }
 
             var selected = new List<RevitItem>();
             foreach (var obj in RevitGrid.SelectedItems)
-                if (obj is RevitItem ri) selected.Add(ri);
+            {
+                if (obj is RevitItem ri)
+                    selected.Add(ri);
+            }
 
             if (selected.Count == 0)
             {
-                MessageBox.Show("Выберите одну или несколько строк слева (Revit), которые нужно связать с выбранным кодом 1C.", "ERP");
+                MessageBox.Show("Выберите одну или несколько строк слева (Revit), которые нужно связать с кодом 1C.", "ERP");
                 return;
             }
 
             foreach (var ri in selected)
                 ri.ErpCode = erp.Code;
 
-            RevitGrid.Items.Refresh();
+            RebuildRevitView();
         }
 
         private void BtnSave_Click(object sender, RoutedEventArgs e)

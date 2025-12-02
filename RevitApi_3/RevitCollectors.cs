@@ -36,6 +36,28 @@ namespace RevitApi_3
             return CollectItemsFromSchedules(doc, new[] { vs });
         }
 
+        private static string GetStringParam(Element inst, Element type, string name)
+        {
+            Parameter p = inst.LookupParameter(name);
+            if (p != null && p.StorageType == StorageType.String)
+            {
+                string s = p.AsString();
+                if (!string.IsNullOrEmpty(s)) return s;
+            }
+
+            if (type != null)
+            {
+                Parameter pt = type.LookupParameter(name);
+                if (pt != null && pt.StorageType == StorageType.String)
+                {
+                    string s = pt.AsString();
+                    if (!string.IsNullOrEmpty(s)) return s;
+                }
+            }
+
+            return string.Empty;
+        }
+
         public static List<RevitItem> CollectItemsFromSchedules(Document doc, IEnumerable<ViewSchedule> schedules)
         {
             var result = new List<RevitItem>();
@@ -81,6 +103,10 @@ namespace RevitApi_3
                     else if (pInst != null && pInst.StorageType == StorageType.String)
                         erpCode = pInst.AsString();
 
+                    // Новые данные
+                    string unit = GetStringParam(inst, type, "ADSK_Единица измерения");
+                    double? mass = GetDoubleParam(inst, type, "ADSK_Масса");
+
                     var item = new RevitItem
                     {
                         ElementId = inst.Id,
@@ -89,14 +115,16 @@ namespace RevitApi_3
                         FamilyName = familyName,
                         TypeName = typeName,
                         DisplayName = dispName,
-                        ErpCode = erpCode
+                        ErpCode = erpCode,
+                        Unit = unit,
+                        MassPerItem = mass
                     };
 
                     result.Add(item);
                 }
             }
 
-            // Больше без группировки! Команды сами решат, нужно ли по типам.
+            // БЕЗ группировки — команды сами решают, как агрегировать
             return result;
         }
 
@@ -117,6 +145,23 @@ namespace RevitApi_3
                 return type.Name;
 
             return inst.Name;
+        }
+
+
+        private static double? GetDoubleParam(Element inst, Element type, string name)
+        {
+            Parameter p = inst.LookupParameter(name);
+            if (p != null && p.StorageType == StorageType.Double)
+                return p.AsDouble();
+
+            if (type != null)
+            {
+                Parameter pt = type.LookupParameter(name);
+                if (pt != null && pt.StorageType == StorageType.Double)
+                    return pt.AsDouble();
+            }
+
+            return null;
         }
     }
 }

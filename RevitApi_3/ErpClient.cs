@@ -9,46 +9,132 @@ namespace RevitApi_3
 {
     internal static class ErpClient
     {
-        // TODO: подставь свои реальные адреса
-        private const string CodesUrl = "http://localhost:8000/";
+        // TODO: подставь реальные адреса/эндпоинты
+        private const string TreeUrl = "http://localhost:8000/types";
+        private const string CodesUrl = "http://localhost:8000/nomens";
         private const string ExportUrl = "http://localhost:8000/accept";
 
-        /// <summary>
-        /// Загружает список номенклатур из 1C-ERP.
-        /// </summary>
-        public static List<ErpItem> LoadErpItems()
+        // DTO для дерева (как приходит с REST)
+        private class ErpTreeItemDto
         {
-            var requestObj = new { action = "get_nomenclature_list" };
+            public string Ref_Key { get; set; }
+            public string Parent_Key { get; set; }
+            public string Description { get; set; }
+        }
+
+        private class ErpItemDto
+        {
+            public string Code { get; set; }
+            public string Name { get; set; }
+            public string Extra { get; set; }
+            public string Unit { get; set; }
+        }
+
+        /// <summary>
+        /// Загружает дерево ERP (Ref_Key / Parent_Key / Description) и собирает его в иерархию.
+        /// </summary>
+        public static List<ErpTreeNode> LoadErpTree()
+        {
+            var requestObj = new { action = "get_classifier_tree" };
             string json = JsonConvert.SerializeObject(requestObj);
 
             using (WebClient wc = new WebClient())
             {
                 wc.Encoding = Encoding.UTF8;
                 wc.Headers[HttpRequestHeader.ContentType] = "application/json; charset=utf-8";
+                string response = wc.UploadString(TreeUrl, "POST", json);
 
-                string response = wc.UploadString(CodesUrl, "POST", json);
-                List<ErpItem> items = JsonConvert.DeserializeObject<List<ErpItem>>(response);
-                return items ?? new List<ErpItem>();
+                var flat = JsonConvert.DeserializeObject<List<ErpTreeItemDto>>(response) ?? new List<ErpTreeItemDto>();
+
+                // Собираем дерево
+                var dict = new Dictionary<string, ErpTreeNode>();
+                foreach (var dto in flat)
+                {
+                    if (string.IsNullOrEmpty(dto.Ref_Key))
+                        continue;
+
+                    var node = new ErpTreeNode
+                    {
+                        RefKey = dto.Ref_Key,
+                        ParentKey = dto.Parent_Key,
+                        Description = dto.Description
+                    };
+                    dict[dto.Ref_Key] = node;
+                }
+
+                var roots = new List<ErpTreeNode>();
+
+                foreach (var node in dict.Values)
+                {
+                    if (string.IsNullOrEmpty(node.ParentKey) || !dict.ContainsKey(node.ParentKey))
+                    {
+                        roots.Add(node);
+                    }
+                    else
+                    {
+                        dict[node.ParentKey].Children.Add(node);
+                    }
+                }
+
+                return roots;
             }
         }
 
         /// <summary>
-        /// Выгружает ресурсную (маппинг Revit → ERP) в 1C-ERP.
+        /// Загружает список номенклатур для выбранного узла дерева (по Ref_Key).
+        /// </summary>
+        public static List<ErpItem> LoadErpItems(string refKey)
+        {
+            if (string.IsNullOrEmpty(refKey))
+                throw new ArgumentException("RefKey не задан.", nameof(refKey));
+
+            var requestObj = new
+            {
+                action = "get_nomenclature_list",
+                parent_ref = refKey
+            };
+
+            string json = JsonConvert.SerializeObject(requestObj);
+
+            using (WebClient wc = new WebClient())
+            {
+                wc.Encoding = Encoding.UTF8;
+                wc.Headers[HttpRequestHeader.ContentType] = "application/json; charset=utf-8";
+                string response = wc.UploadString(CodesUrl, "POST", json);
+
+                var dtos = JsonConvert.DeserializeObject<List<ErpItemDto>>(response) ?? new List<ErpItemDto>();
+
+                return dtos.Select(d => new ErpItem
+                {
+                    Code = d.Code,
+                    Name = d.Name,
+                    Extra = d.Extra,
+                    Unit = d.Unit
+                }).ToList();
+            }
+        }
+
+        /// <summary>
+        /// Выгружает агрегированную ресурсную в 1C-ERP.
         /// </summary>
         public static string ExportResources(string title,
                                              string context,
-                                             IEnumerable<RevitItem> items)
+                                             IEnumerable<ExportRow> rows)
         {
-            if (items == null)
-                throw new ArgumentNullException(nameof(items));
+            if (rows == null)
+                throw new ArgumentNullException(nameof(rows));
 
-            var rows = items.Select(i => new
+            var rowList = rows.Select(r => new
             {
-                ScheduleName = i.ScheduleName,
-                FamilyName = i.FamilyName,
-                TypeName = i.TypeName,
-                DisplayName = i.DisplayName,
-                ErpCode = i.ErpCode
+                r.ScheduleName,
+                r.FamilyName,
+                r.TypeName,
+                r.DisplayName,
+                r.ErpCode,
+                r.Unit,
+                Quantity = r.Quantity,
+                MassPerItem = r.MassPerItem,
+                TotalMass = r.TotalMass
             }).ToList();
 
             var payload = new
@@ -56,7 +142,7 @@ namespace RevitApi_3
                 action = "upload_resource_map",
                 title = title,
                 context = context,
-                rows = rows
+                rows = rowList
             };
 
             string json = JsonConvert.SerializeObject(payload);

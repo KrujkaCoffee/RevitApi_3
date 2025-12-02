@@ -26,17 +26,20 @@
         <!-- Предпросмотр ресурсной -->
         <GroupBox Grid.Row="1" Header="Предпросмотр ресурсной для выгрузки в ERP">
             <DataGrid x:Name="ExportGrid"
-                      AutoGenerateColumns="False"
-                      IsReadOnly="True">
+          AutoGenerateColumns="False"
+          IsReadOnly="True">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="Спецификация" Binding="{Binding ScheduleName}" Width="*"/>
                     <DataGridTextColumn Header="Семейство" Binding="{Binding FamilyName}" Width="*"/>
                     <DataGridTextColumn Header="Тип" Binding="{Binding TypeName}" Width="*"/>
                     <DataGridTextColumn Header="Наименование" Binding="{Binding DisplayName}" Width="2*"/>
                     <DataGridTextColumn Header="Код 1C-ERP" Binding="{Binding ErpCode}" Width="*"/>
+                    <DataGridTextColumn Header="Ед. изм." Binding="{Binding Unit}" Width="Auto" MinWidth="70"/>
+                    <DataGridTextColumn Header="Кол-во" Binding="{Binding Quantity}" Width="Auto" MinWidth="70"/>
+                    <DataGridTextColumn Header="Масса / шт" Binding="{Binding MassPerItem}" Width="Auto" MinWidth="80"/>
+                    <DataGridTextColumn Header="Масса всего" Binding="{Binding TotalMass}" Width="Auto" MinWidth="90"/>
                 </DataGrid.Columns>
 
-                <!-- Подсветка строк без корректного кода -->
                 <DataGrid.RowStyle>
                     <Style TargetType="DataGridRow">
                         <Style.Triggers>
@@ -50,6 +53,7 @@
                     </Style>
                 </DataGrid.RowStyle>
             </DataGrid>
+
         </GroupBox>
 
         <!-- Нижняя панель -->

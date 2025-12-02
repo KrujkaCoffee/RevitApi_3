@@ -1,9 +1,5 @@
-﻿using System.IO;
-using System.Reflection;
-using System.Windows.Media.Imaging;
+﻿using System.Reflection;
 using Autodesk.Revit.UI;
-
-
 
 namespace RevitApi_3
 {
@@ -20,28 +16,27 @@ namespace RevitApi_3
 
             var b1 = new PushButtonData(
                 "ErpMappingAll",
-                "Коды 1C\n(все)",
+                "🔑 Коды\n(все)",
                 path,
                 "RevitApi_3.ErpMappingAllCommand");
 
             var b2 = new PushButtonData(
                 "ErpMappingActive",
-                "Коды 1C\n(активная)",
+                "🔑 Коды\n(активная)",
                 path,
                 "RevitApi_3.ErpMappingActiveCommand");
 
             var b3 = new PushButtonData(
-                "ErpExportResources",
-                "Выгрузить\nв ERP",
+                "ErpExportResourcesAll",
+                "📤 Выгрузка\n(все)",
                 path,
                 "RevitApi_3.ErpExportResourcesCommand");
+
             var b4 = new PushButtonData(
                 "ErpExportResourcesActive",
-                "Выгрузка\n(активная)",
+                "📤 Выгрузка\n(активная)",
                 path,
                 "RevitApi_3.ErpExportResourcesActiveCommand");
-            b1.LargeImage = LoadPng("RevitApi_3.Resources.download_pic.png");
-            b1.Image = LoadPng("RevitApi_3.Resources.sync_pic.png");
 
             panel.AddItem(b1);
             panel.AddItem(b2);
@@ -55,20 +50,5 @@ namespace RevitApi_3
         {
             return Result.Succeeded;
         }
-        private static BitmapImage LoadPng(string resourcePath)
-        {
-            var asm = Assembly.GetExecutingAssembly();
-            using (Stream s = asm.GetManifestResourceStream(resourcePath))
-            {
-                if (s == null) return null;
-                var img = new BitmapImage();
-                img.BeginInit();
-                img.StreamSource = s;
-                img.CacheOption = BitmapCacheOption.OnLoad;
-                img.EndInit();
-                return img;
-            }
-        }
     }
-
 }

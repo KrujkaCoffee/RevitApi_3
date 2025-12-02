@@ -32,36 +32,35 @@ namespace RevitApi_3
                     return Result.Failed;
                 }
 
-                // 1. Собираем все элементы из этой спецификации
+                // 1. Элементы из этой спецификации
                 var rawItems = RevitCollectors.CollectFromSchedule(doc, vs);
-
                 if (rawItems.Count == 0)
                 {
                     TaskDialog.Show("ERP", "В активной спецификации нет элементов для обработки.");
                     return Result.Succeeded;
                 }
 
-                // 2. Гарантируем параметр на всех категориях этих элементов
+                // 2. Гарантируем параметр
                 ErpParameters.EnsureErpCodeParameterForItems(doc, rawItems);
 
-                // 3. Для сопоставления — один элемент на тип
+                // 3. По одному на тип
                 var itemsByType = RevitItemUtils.GroupByType(rawItems);
 
-                // 4. Загружаем данные из ERP (адрес под капотом)
-                List<ErpItem> erpItems;
+                // 4. Дерево ERP
+                List<ErpTreeNode> treeRoots;
                 try
                 {
-                    erpItems = ErpClient.LoadErpItems();
+                    treeRoots = ErpClient.LoadErpTree();
                 }
                 catch
                 {
-                    TaskDialog.Show("ERP", "Сервис недоступен. Код 1C-ERP получить не удалось.");
+                    TaskDialog.Show("ERP", "Сервис недоступен. Дерево номенклатуры получить не удалось.");
                     return Result.Succeeded;
                 }
 
                 string ctx = "Спецификация: " + vs.Name;
-                var win = new MappingWindow(itemsByType, erpItems, ctx);
-                var helper = new WindowInteropHelper(win);
+                var win = new MappingWindow(itemsByType, treeRoots, ctx);
+                var helper = new System.Windows.Interop.WindowInteropHelper(win);
                 helper.Owner = commandData.Application.MainWindowHandle;
 
                 bool? dlgResult = win.ShowDialog();
@@ -69,7 +68,6 @@ namespace RevitApi_3
                     return Result.Succeeded;
 
                 ApplyErpCodes(doc, win.ResultItems);
-
                 return Result.Succeeded;
             }
             catch (Exception ex)
@@ -78,7 +76,6 @@ namespace RevitApi_3
                 return Result.Failed;
             }
         }
-
         private static void ApplyErpCodes(Document doc, IList<RevitItem> items)
         {
             if (items == null) return;
