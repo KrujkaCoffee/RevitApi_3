@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -30,31 +31,47 @@ namespace RevitApi_3
                     return Result.Failed;
                 }
 
-                // 1. Берём все элементы из этой спецификации
+                // 1. Элементы из этой спецификации
                 var items = RevitCollectors.CollectFromSchedule(doc, vs);
-
                 if (items.Count == 0)
                 {
                     TaskDialog.Show("ERP", "В активной спецификации нет элементов для выгрузки.");
                     return Result.Succeeded;
                 }
 
+                // 2. Загружаем дерево, типы и единицы для выбора выходного изделия
+                List<ErpTreeNode> treeRoots;
+                List<RefNamedItem> types;
+                List<RefNamedItem> units;
+
+                try
+                {
+                    treeRoots = ErpClient.LoadErpTree();
+                    types = ErpClient.LoadNomenclatureTypes();
+                    units = ErpClient.LoadUnits();
+                }
+                catch (Exception ex)
+                {
+                    TaskDialog.Show("ERP", "Сервис недоступен (подбор выходного изделия).\n" + ex.Message);
+                    return Result.Succeeded;
+                }
+
+                string projectName = GetProjectTitle(doc);
+                string defaultTitle = "Спецификация_" + projectName;
+
                 ProjectInfo pi = doc.ProjectInformation;
                 string paramTitle = GetStringParam(pi, ErpParameters.DocTitleParamName);
-
-                string defaultTitle = "Спецификация_" + GetProjectTitle(doc);
                 string initialTitle = string.IsNullOrEmpty(paramTitle) ? defaultTitle : paramTitle;
 
-
                 string ctx = "Спецификация: " + vs.Name;
-                var win = new ExportWindow(items, ctx, initialTitle);
+
+                var win = new ExportWindow(items, ctx, initialTitle, treeRoots, types, units);
                 var helper = new WindowInteropHelper(win);
                 helper.Owner = commandData.Application.MainWindowHandle;
 
                 bool? dlg = win.ShowDialog();
                 if (dlg == true)
                 {
-                    // Сохраняем Title в ProjectInfo (если параметр есть)
                     using (Transaction t = new Transaction(doc, "Update ERP export title (active spec)"))
                     {
                         t.Start();
@@ -85,6 +102,7 @@ namespace RevitApi_3
                 return p.AsString();
             return null;
         }
+
         private static string GetProjectTitle(Document doc)
         {
             try
@@ -96,7 +114,6 @@ namespace RevitApi_3
                     return System.IO.Path.GetFileNameWithoutExtension(doc.PathName);
             }
             catch { }
-
             return "Проект";
         }
     }

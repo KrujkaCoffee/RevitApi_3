@@ -27,12 +27,6 @@ namespace RevitApi_3
                 "RevitApi_3.ErpMappingActiveCommand");
 
             var b3 = new PushButtonData(
-                "ErpExportResourcesAll",
-                "📤 Выгрузка\n(все)",
-                path,
-                "RevitApi_3.ErpExportResourcesCommand");
-
-            var b4 = new PushButtonData(
                 "ErpExportResourcesActive",
                 "📤 Выгрузка\n(активная)",
                 path,
@@ -41,7 +35,6 @@ namespace RevitApi_3
             panel.AddItem(b1);
             panel.AddItem(b2);
             panel.AddItem(b3);
-            panel.AddItem(b4);
 
             return Result.Succeeded;
         }

@@ -1,0 +1,143 @@
+﻿<Window x:Class="RevitApi_3.OutputProductWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Выходное изделие"
+        Height="500" Width="900"
+        WindowStartupLocation="CenterOwner">
+    <Grid Margin="8">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="2*"/>
+            <!-- дерево -->
+            <ColumnDefinition Width="3*"/>
+            <!-- подбор/создание -->
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Дерево классификатора -->
+        <GroupBox Header="Вид номенклатуры" Grid.Row="0" Grid.Column="0" Margin="0,0,4,0">
+            <TreeView x:Name="Tree"
+                      SelectedItemChanged="Tree_SelectedItemChanged">
+                <TreeView.ItemTemplate>
+                    <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                        <TextBlock Text="{Binding Description}"/>
+                    </HierarchicalDataTemplate>
+                </TreeView.ItemTemplate>
+            </TreeView>
+        </GroupBox>
+
+        <!-- Правая часть: подбор / создание -->
+        <GroupBox Header="Подбор / Создание" Grid.Row="0" Grid.Column="1">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <!-- вкладки -->
+                    <RowDefinition Height="*"/>
+                    <!-- содержимое -->
+                </Grid.RowDefinitions>
+
+                <TabControl x:Name="Tabs" Grid.Row="1">
+                    <!-- Подбор -->
+                    <TabItem Header="Подбор">
+                        <Grid Margin="0,4,0,0">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <!-- поиск -->
+                                <RowDefinition Height="*"/>
+                                <!-- таблица -->
+                            </Grid.RowDefinitions>
+
+                            <StackPanel Orientation="Horizontal" Grid.Row="0" HorizontalAlignment="Right" Margin="0,0,0,4">
+                                <TextBlock Text="Поиск:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                <TextBox x:Name="SearchBox" Width="220" TextChanged="SearchBox_TextChanged"/>
+                            </StackPanel>
+
+                            <DataGrid x:Name="CodesGrid"
+                                      Grid.Row="1"
+                                      AutoGenerateColumns="False"
+                                      IsReadOnly="True">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Код" Binding="{Binding Code}" Width="*"/>
+                                    <DataGridTextColumn Header="Наименование" Binding="{Binding Name}" Width="2*"/>
+                                    <DataGridTextColumn Header="Ед. изм." Binding="{Binding Unit}" Width="Auto" MinWidth="70"/>
+                                    <DataGridTextColumn Header="Дополнительно" Binding="{Binding Extra}" Width="*"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Grid>
+                    </TabItem>
+
+                    <!-- Создание -->
+                    <TabItem Header="Создание">
+                        <Grid Margin="0,4,0,0">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Вид номенклатуры -->
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Вид:" Margin="0,0,4,4" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Row="0" Grid.Column="1" x:Name="KindLabel" Margin="0,0,0,4"/>
+
+                            <!-- Тип номенклатуры -->
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Тип:" Margin="0,0,4,4" VerticalAlignment="Center"/>
+                            <ComboBox Grid.Row="1" Grid.Column="1" x:Name="TypeCombo" Margin="0,0,0,4"/>
+                            <TextBlock Grid.Row="1" Grid.ColumnSpan="2" x:Name="TypeError"
+                                       Foreground="Red" FontSize="10"/>
+
+                            <!-- Единица измерения -->
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Ед. изм.:" Margin="0,0,4,4" VerticalAlignment="Center"/>
+                            <ComboBox Grid.Row="2" Grid.Column="1" x:Name="UnitCombo" Margin="0,0,0,4"/>
+                            <TextBlock Grid.Row="2" Grid.ColumnSpan="2" x:Name="UnitError"
+                                       Foreground="Red" FontSize="10"/>
+
+                            <!-- Наименование -->
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Наименование:" Margin="0,0,4,4" VerticalAlignment="Center"/>
+                            <TextBox Grid.Row="3" Grid.Column="1" x:Name="NameBox" Margin="0,0,0,4"/>
+                            <TextBlock Grid.Row="3" Grid.ColumnSpan="2" x:Name="NameError"
+                                       Foreground="Red" FontSize="10"/>
+
+                            <!-- Артикул -->
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Артикул:" Margin="0,0,4,4" VerticalAlignment="Top"/>
+                            <StackPanel Grid.Row="4" Grid.Column="1">
+                                <TextBox x:Name="ArticleBox" Margin="0,0,0,4"/>
+                                <TextBlock x:Name="ArticleError"
+                                           Foreground="Red" FontSize="10"/>
+                            </StackPanel>
+                        </Grid>
+                    </TabItem>
+                </TabControl>
+            </Grid>
+        </GroupBox>
+
+        <!-- Нижняя панель -->
+        <StackPanel Grid.Row="1" Grid.ColumnSpan="2"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Margin="0,8,0,0">
+            <TextBlock Text="Выбранное изделие: " VerticalAlignment="Center"/>
+            <TextBlock x:Name="SelectedProductLabel" Margin="4,0,16,0" VerticalAlignment="Center"/>
+
+            <Button x:Name="BtnOk"
+                    Content="✔ OK"
+                    Width="80" Margin="0,0,8,0"
+                    Click="BtnOk_Click"/>
+            <Button x:Name="BtnCreate"
+                    Content="➕ Создать"
+                    Width="90" Margin="0,0,8,0"
+                    Click="BtnCreate_Click"/>
+            <Button x:Name="BtnCancel"
+                    Content="✖ Отмена"
+                    Width="80"
+                    Click="BtnCancel_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
-// алиасы:
+// алиасы
 using WpfGrid = System.Windows.Controls.Grid;
 using WpfTextBox = System.Windows.Controls.TextBox;
 
@@ -15,19 +15,36 @@ namespace RevitApi_3
         private readonly List<ExportRow> _exportRows;
         private readonly string _contextInfo;
 
+        private readonly List<ErpTreeNode> _treeRoots;
+        private readonly List<RefNamedItem> _types;
+        private readonly List<RefNamedItem> _units;
+
+        private ErpItem _outputProduct;
+
         public string DocTitle => TitleBox.Text != null ? TitleBox.Text.Trim() : string.Empty;
 
-        public ExportWindow(List<RevitItem> items,
-                            string contextInfo,
-                            string initialTitle)
+        public ExportWindow(
+            List<RevitItem> items,
+            string contextInfo,
+            string initialTitle,
+            List<ErpTreeNode> treeRoots,
+            List<RefNamedItem> types,
+            List<RefNamedItem> units)
         {
             InitializeComponent();
 
             _sourceItems = items ?? new List<RevitItem>();
             _contextInfo = contextInfo ?? "";
 
+            _treeRoots = treeRoots ?? new List<ErpTreeNode>();
+            _types = types ?? new List<RefNamedItem>();
+            _units = units ?? new List<RefNamedItem>();
+
             _exportRows = BuildExportRows(_sourceItems);
             ExportGrid.ItemsSource = _exportRows;
+
+            WpfGrid grid = RootGrid;
+            WpfTextBox titleBox = TitleBox;
 
             TitleBox.Text = initialTitle ?? string.Empty;
             ContextLabel.Text = _contextInfo;
@@ -75,12 +92,34 @@ namespace RevitApi_3
             return result;
         }
 
+        private void BtnPickOutput_Click(object sender, RoutedEventArgs e)
+        {
+            var win = new OutputProductWindow(_treeRoots, _types, _units);
+            var helper = new System.Windows.Interop.WindowInteropHelper(win);
+            helper.Owner = new System.IntPtr(); // можно не задавать, если из команды уже есть Owner
+
+            bool? dlg = win.ShowDialog();
+            if (dlg == true && win.SelectedProduct != null)
+            {
+                _outputProduct = win.SelectedProduct;
+                OutputNameText.Text = _outputProduct.Name;
+                OutputCodeText.Text = _outputProduct.Code;
+            }
+        }
+
         private void BtnExport_Click(object sender, RoutedEventArgs e)
         {
             string title = DocTitle;
             if (string.IsNullOrEmpty(title))
             {
                 MessageBox.Show("Необходимо заполнить Title.", "ERP", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            if (_outputProduct == null)
+            {
+                MessageBox.Show("Не выбрано выходное изделие. Используйте кнопку 'Подобрать / создать'.",
+                    "ERP", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -100,7 +139,7 @@ namespace RevitApi_3
 
             try
             {
-                string response = ErpClient.ExportResources(title, _contextInfo, _exportRows);
+                string response = ErpClient.ExportResources(title, _contextInfo, _exportRows, _outputProduct);
                 MessageBox.Show("Выгрузка выполнена.\nОтвет сервера:\n" + response, "ERP");
                 this.DialogResult = true;
                 this.Close();
@@ -118,5 +157,4 @@ namespace RevitApi_3
             this.Close();
         }
     }
-
 }

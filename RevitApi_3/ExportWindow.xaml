@@ -2,32 +2,54 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Выгрузка ресурсной в ERP"
-        Height="500" Width="900"
+        Height="550" Width="950"
         WindowStartupLocation="CenterOwner">
     <Grid x:Name="RootGrid" Margin="8">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <!-- верх -->
+            <!-- верх: title + выходное изделие -->
             <RowDefinition Height="*"/>
             <!-- таблица -->
             <RowDefinition Height="Auto"/>
             <!-- низ -->
         </Grid.RowDefinitions>
 
-        <!-- Верхняя панель -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
-            <TextBlock Text="Title:" VerticalAlignment="Center"/>
-            <TextBox x:Name="TitleBox" Width="300" Margin="6,0,0,0"/>
-            <TextBlock x:Name="ContextLabel" Margin="12,0,0,0"
-                       VerticalAlignment="Center"
-                       TextWrapping="Wrap"/>
+        <!-- Верх -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,8">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                <TextBlock Text="Title:" VerticalAlignment="Center"/>
+                <TextBox x:Name="TitleBox" Width="300" Margin="6,0,0,0"/>
+                <TextBlock x:Name="ContextLabel" Margin="12,0,0,0"
+                           VerticalAlignment="Center"
+                           TextWrapping="Wrap"/>
+            </StackPanel>
+
+            <GroupBox Header="Выходное изделие">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="Наименование:" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="OutputNameText"
+                               Margin="4,0,16,0"
+                               VerticalAlignment="Center"/>
+
+                    <TextBlock Text="Код:" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="OutputCodeText"
+                               Margin="4,0,16,0"
+                               VerticalAlignment="Center"/>
+
+                    <Button x:Name="BtnPickOutput"
+                            Content="🔍 Подобрать / создать"
+                            Margin="8,0,0,0"
+                            Padding="6,2"
+                            Click="BtnPickOutput_Click"/>
+                </StackPanel>
+            </GroupBox>
         </StackPanel>
 
-        <!-- Предпросмотр ресурсной -->
+        <!-- Таблица ресурсной -->
         <GroupBox Grid.Row="1" Header="Предпросмотр ресурсной для выгрузки в ERP">
             <DataGrid x:Name="ExportGrid"
-          AutoGenerateColumns="False"
-          IsReadOnly="True">
+                      AutoGenerateColumns="False"
+                      IsReadOnly="True">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="Спецификация" Binding="{Binding ScheduleName}" Width="*"/>
                     <DataGridTextColumn Header="Семейство" Binding="{Binding FamilyName}" Width="*"/>
@@ -53,10 +75,9 @@
                     </Style>
                 </DataGrid.RowStyle>
             </DataGrid>
-
         </GroupBox>
 
-        <!-- Нижняя панель -->
+        <!-- Низ -->
         <StackPanel Grid.Row="2"
                     Orientation="Horizontal"
                     HorizontalAlignment="Right"

@@ -123,8 +123,6 @@ namespace RevitApi_3
                     result.Add(item);
                 }
             }
-
-            // БЕЗ группировки — команды сами решают, как агрегировать
             return result;
         }
 

@@ -15,20 +15,19 @@ namespace RevitApi_3
 
         public string ErpCode { get; set; }
 
-        // Из спецификации
-        public string Unit { get; set; }          // Единица измерения
-        public double? MassPerItem { get; set; }  // Масса/шт (из параметров)
+        public string Unit { get; set; }
+        public double? MassPerItem { get; set; }
     }
 
     public class ErpItem
     {
-        public string Code { get; set; }      // Код 1C-ERP
-        public string Name { get; set; }      // Наименование
-        public string Extra { get; set; }     // Доп. инфо
-        public string Unit { get; set; }      // Ед. изм. из ERP
+        public string Code { get; set; }
+        public string Name { get; set; }
+        public string Extra { get; set; }
+        public string Unit { get; set; }
     }
 
-    // Дерево ERP (классификатор)
+    // Узел дерева классификатора
     public class ErpTreeNode
     {
         public string RefKey { get; set; }
@@ -40,7 +39,16 @@ namespace RevitApi_3
         public override string ToString() => Description;
     }
 
-    // Агрегированная строка для экспорта
+    // Элемент справочника (тип номенклатуры, единица и т.п.)
+    public class RefNamedItem
+    {
+        public string RefKey { get; set; }
+        public string Name { get; set; }
+
+        public override string ToString() => Name;
+    }
+
+    // Агрегированная строка для экспортируемой ресурсной
     public class ExportRow
     {
         public string ScheduleName { get; set; }
