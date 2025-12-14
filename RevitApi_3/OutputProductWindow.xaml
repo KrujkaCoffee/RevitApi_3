@@ -40,7 +40,7 @@
 
                 <TabControl x:Name="Tabs" Grid.Row="1">
                     <!-- Подбор -->
-                    <TabItem Header="Подбор">
+                    <TabItem x:Name="TabPick" Header="Подбор">
                         <Grid Margin="0,4,0,0">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
@@ -69,7 +69,7 @@
                     </TabItem>
 
                     <!-- Создание -->
-                    <TabItem Header="Создание">
+                    <TabItem x:Name="TabCreate" Header="Создание">
                         <Grid Margin="0,4,0,0">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
@@ -125,7 +125,10 @@
                     Margin="0,8,0,0">
             <TextBlock Text="Выбранное изделие: " VerticalAlignment="Center"/>
             <TextBlock x:Name="SelectedProductLabel" Margin="4,0,16,0" VerticalAlignment="Center"/>
-
+            <Button x:Name="BtnValidate"
+                Content="✅ Проверить"
+                Width="110" Margin="0,0,8,0"
+                Click="BtnValidate_Click"/>
             <Button x:Name="BtnOk"
                     Content="✔ OK"
                     Width="80" Margin="0,0,8,0"

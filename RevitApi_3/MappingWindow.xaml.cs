@@ -18,6 +18,10 @@ namespace RevitApi_3
         private List<ErpItem> _erpItemsFull = new List<ErpItem>();
         private List<ErpItem> _erpView = new List<ErpItem>();
 
+        // (опционально) кешируем справочники, чтобы не дергать REST каждый раз
+        private List<RefNamedItem> _cachedTypes;
+        private List<RefNamedItem> _cachedUnits;
+
         private readonly string _contextInfo;
 
         public IList<RevitItem> ResultItems => _revitItemsFull;
@@ -53,6 +57,60 @@ namespace RevitApi_3
         }
 
         // ===== Revit: фильтр "только без кода" =====
+
+
+        private void BtnCreateNomenclature_Click(object sender, RoutedEventArgs e)
+        {
+            // Нужно, чтобы пользователь выбрал, кому назначать код
+            if (RevitGrid.SelectedItems == null || RevitGrid.SelectedItems.Count == 0)
+            {
+                MessageBox.Show("Выберите одну или несколько строк слева (Revit), которым нужно назначить созданную номенклатуру.",
+                    "ERP", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            try
+            {
+                if (_cachedTypes == null) _cachedTypes = ErpClient.LoadNomenclatureTypes();
+                if (_cachedUnits == null) _cachedUnits = ErpClient.LoadUnits();
+            }
+            catch
+            {
+                MessageBox.Show("Сервис недоступен (не удалось загрузить справочники для создания).", "ERP",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            // (улучшение UX) если в дереве справа что-то выбрано — передадим как предустановку
+            ErpTreeNode selectedNode = ErpTree.SelectedItem as ErpTreeNode;
+
+            var win = new OutputProductWindow(
+                _erpTreeRoots,
+                _cachedTypes,
+                _cachedUnits,
+                OutputProductWindowMode.CreateOnly,
+                selectedNode != null ? selectedNode.RefKey : null,
+                selectedNode != null ? selectedNode.Description : null);
+
+            // owner
+            var helper = new System.Windows.Interop.WindowInteropHelper(win);
+            helper.Owner = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+
+            bool? dlg = win.ShowDialog();
+            if (dlg == true && win.SelectedProduct != null)
+            {
+                string createdCode = win.SelectedProduct.Code;
+
+                foreach (var obj in RevitGrid.SelectedItems)
+                {
+                    var ri = obj as RevitItem;
+                    if (ri != null)
+                        ri.ErpCode = createdCode;
+                }
+
+                RebuildRevitView();
+            }
+        }
 
         private void RebuildRevitView()
         {
@@ -165,6 +223,7 @@ namespace RevitApi_3
             RebuildRevitView();
             MessageBox.Show("Автоматически сопоставлено: " + count, "ERP");
         }
+
 
         // ===== Стрелка: применить выбранный код к выделенным строкам =====
 

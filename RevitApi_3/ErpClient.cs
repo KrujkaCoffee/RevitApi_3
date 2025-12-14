@@ -17,6 +17,7 @@ namespace RevitApi_3
         private const string UnitsUrl = "http://pow18-08:8000/nomen/units/form/";
         private const string CreateUrl = "http://pow18-08:8000/nomen/create/";
         private const string ExportResourcesUrl = "http://pow18-08:8000/accept";
+        private const string ValidateUrl = "https://erp.example.com/api/validate_nomenclature";
 
         // DTO для дерева
         private class ErpTreeItemDto
@@ -246,6 +247,44 @@ namespace RevitApi_3
             string response = PostJson(ExportResourcesUrl, json, out _);
             return response;
         }
+
+        public static void ValidateNomenclature(
+    string kindRef, string typeRef, string unitRef,
+    string name, string article)
+        {
+            var payload = new
+            {
+                action = "validate_nomenclature",
+                kind_ref = kindRef,
+                type_ref = typeRef,
+                unit_ref = unitRef,
+                name = name,
+                article = article
+            };
+
+            string json = JsonConvert.SerializeObject(payload);
+
+            HttpStatusCode status;
+            string response = PostJson(ValidateUrl, json, out status);
+
+            if (status == HttpStatusCode.OK) // 200
+                return;
+
+            if (status == HttpStatusCode.BadRequest) // 400: { "field": "error", ... }
+            {
+                var dict = JsonConvert.DeserializeObject<Dictionary<string, string>>(response)
+                           ?? new Dictionary<string, string>();
+
+                var normalized = new Dictionary<string, List<string>>();
+                foreach (var kv in dict)
+                    normalized[kv.Key] = new List<string> { kv.Value ?? "" };
+
+                throw new ErpValidationException(normalized);
+            }
+
+            throw new Exception("Неуспешный код ответа при проверке: " + (int)status);
+        }
+
 
         /// <summary>
         /// Вспомогательный метод POST JSON с возвратом тела и кода статуса.

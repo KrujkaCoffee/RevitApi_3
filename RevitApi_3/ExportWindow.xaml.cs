@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
+
 // алиасы
 using WpfGrid = System.Windows.Controls.Grid;
 using WpfTextBox = System.Windows.Controls.TextBox;
@@ -94,9 +96,16 @@ namespace RevitApi_3
 
         private void BtnPickOutput_Click(object sender, RoutedEventArgs e)
         {
-            var win = new OutputProductWindow(_treeRoots, _types, _units);
-            var helper = new System.Windows.Interop.WindowInteropHelper(win);
-            helper.Owner = new System.IntPtr(); // можно не задавать, если из команды уже есть Owner
+            // Режим для экспорта: полноценный подбор + создание
+            var win = new OutputProductWindow(
+                _treeRoots,
+                _types,
+                _units,
+                OutputProductWindowMode.PickOrCreate);
+
+            // Важно: owner должен быть текущим окном, а не new IntPtr()
+            var helper = new WindowInteropHelper(win);
+            helper.Owner = new WindowInteropHelper(this).Handle;
 
             bool? dlg = win.ShowDialog();
             if (dlg == true && win.SelectedProduct != null)
