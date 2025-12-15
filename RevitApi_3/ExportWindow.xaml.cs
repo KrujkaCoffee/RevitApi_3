@@ -21,6 +21,9 @@ namespace RevitApi_3
         private readonly List<RefNamedItem> _types;
         private readonly List<RefNamedItem> _units;
 
+        private string _lastKindRefKey;
+        private string _lastKindName;
+
         private ErpItem _outputProduct;
 
         public string DocTitle => TitleBox.Text != null ? TitleBox.Text.Trim() : string.Empty;
@@ -77,6 +80,7 @@ namespace RevitApi_3
                 if (massPerItem.HasValue)
                     totalMass = massPerItem.Value * qty;
 
+
                 result.Add(new ExportRow
                 {
                     ScheduleName = g.Key.ScheduleName,
@@ -85,9 +89,9 @@ namespace RevitApi_3
                     DisplayName = g.Key.DisplayName,
                     ErpCode = g.Key.ErpCode,
                     Unit = g.Key.Unit,
-                    Quantity = qty,
-                    MassPerItem = massPerItem,
-                    TotalMass = totalMass
+                    QuantityText = qty.ToString(),
+                    MassPerItemText = massPerItem.ToString(),
+                    TotalMassText = totalMass.ToString()
                 });
             }
 

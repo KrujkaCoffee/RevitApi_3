@@ -51,6 +51,7 @@ namespace RevitApi_3
     // Агрегированная строка для экспортируемой ресурсной
     public class ExportRow
     {
+        public string Stage { get; set; } // Этап
         public string ScheduleName { get; set; }
         public string FamilyName { get; set; }
         public string TypeName { get; set; }
@@ -58,8 +59,29 @@ namespace RevitApi_3
         public string ErpCode { get; set; }
         public string Unit { get; set; }
 
-        public int Quantity { get; set; }
-        public double? MassPerItem { get; set; }
-        public double? TotalMass { get; set; }
+
+
+        public string QuantityText { get; set; }
+        public string MassPerItemText { get; set; }
+        public string TotalMassText { get; set; }
+    }
+
+
+    public class ScheduleExportRow
+    {
+        public RefNamedItem StageItem { get; set; }   // выбирается пользователем
+
+        public List<string> Values { get; set; } = new List<string>(); // по индексам колонок
+        public string ErpCode { get; set; }          // для валидации/подсветки
+        public string Unit { get; set; }             // полезно для последующих операций
+    }
+
+    public class ScheduleExportTable
+    {
+        public List<string> Headers { get; set; } = new List<string>();
+        public List<ScheduleExportRow> Rows { get; set; } = new List<ScheduleExportRow>();
+
+        public int ErpCodeCol { get; set; } = -1;
+        public int UnitCol { get; set; } = -1;
     }
 }

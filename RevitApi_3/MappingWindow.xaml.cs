@@ -83,14 +83,15 @@ namespace RevitApi_3
 
             // (улучшение UX) если в дереве справа что-то выбрано — передадим как предустановку
             ErpTreeNode selectedNode = ErpTree.SelectedItem as ErpTreeNode;
-
+            var first = RevitGrid.SelectedItems.Count > 0 ? RevitGrid.SelectedItems[0] as RevitItem : null;
             var win = new OutputProductWindow(
                 _erpTreeRoots,
                 _cachedTypes,
                 _cachedUnits,
                 OutputProductWindowMode.CreateOnly,
                 selectedNode != null ? selectedNode.RefKey : null,
-                selectedNode != null ? selectedNode.Description : null);
+                selectedNode != null ? selectedNode.Description : null,
+                suggestedName: first?.DisplayName);
 
             // owner
             var helper = new System.Windows.Interop.WindowInteropHelper(win);

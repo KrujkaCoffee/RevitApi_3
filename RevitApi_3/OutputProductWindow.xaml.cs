@@ -3,12 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 namespace RevitApi_3
 {
     public partial class OutputProductWindow : Window
     {
         private readonly OutputProductWindowMode _mode;
+        private readonly string _initialName;
 
         private readonly List<ErpTreeNode> _roots;
         private readonly List<RefNamedItem> _types;
@@ -28,7 +30,8 @@ namespace RevitApi_3
             List<RefNamedItem> units,
             OutputProductWindowMode mode,
             string initialKindRefKey = null,
-            string initialKindName = null)
+            string initialKindName = null,
+            string suggestedName = null)
         {
             InitializeComponent();
 
@@ -40,15 +43,48 @@ namespace RevitApi_3
             Tree.ItemsSource = _roots;
 
             TypeCombo.ItemsSource = _types;
+            TypeCombo.DisplayMemberPath = "Name";
+            TypeCombo.SelectedValuePath = "RefKey";
+
             UnitCombo.ItemsSource = _units;
+            UnitCombo.DisplayMemberPath = "Name";
+            UnitCombo.SelectedValuePath = "RefKey";
 
+            Loaded += OutputProductWindow_Loaded;
             // предустановка вида номенклатуры (если хотим)
-            _selectedKindRefKey = initialKindRefKey;
-            _selectedKindName = initialKindName;
-            KindLabel.Text = _selectedKindName ?? "";
 
-            ApplyMode();
+            //_selectedKindRefKey = initialKindRefKey;
+            //_selectedKindName = initialKindName;
+            //KindLabel.Text = _selectedKindName ?? "";
+
+            //if (!string.IsNullOrWhiteSpace(suggestedName)) { 
+            //    NameBox.Text = suggestedName;
+            //}
+
+            //ApplyMode();
         }
+
+
+        private void OutputProductWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+            // заполним Наименование сразу
+            NameBox.Text = _initialName;
+
+            if (_mode == OutputProductWindowMode.CreateOnly)
+            {
+                Title = "Создание номенклатуры";
+
+                // скрываем “Подбор” и “OK”
+                TabPick.Visibility = Visibility.Collapsed;
+                BtnOk.Visibility = Visibility.Collapsed;
+
+                // переходим сразу на вкладку создания
+                Tabs.SelectedItem = TabCreate;
+
+                // “создание из-под подбора”: таб “подбор” отсутствует — всё корректно
+            }
+        }
+
         private void ApplyMode()
         {
             if (_mode == OutputProductWindowMode.CreateOnly)
@@ -65,6 +101,21 @@ namespace RevitApi_3
             else
             {
                 this.Title = "Выходное изделие";
+            }
+        }
+
+        private void UnitCombo_PreviewTextInput(object sender, TextCompositionEventArgs e)
+        {
+            ComboBox comboBox = sender as ComboBox;
+
+            // Проверяем, существует ли введенный текст в ItemsSource
+            var itemExists = comboBox.ItemsSource.Cast<RefNamedItem>()
+                .Any(item => item.Name.StartsWith(comboBox.Text + e.Text, StringComparison.OrdinalIgnoreCase));
+
+            // Если элемент не существует, предотвращаем ввод
+            if (!itemExists)
+            {
+                e.Handled = true; // Блокируем ввод
             }
         }
         private void Tree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
@@ -100,6 +151,88 @@ namespace RevitApi_3
             }
             RebuildCodesView();
         }
+        private void SaveLastKind()
+        {
+            OutputProductState.LastKindRefKey = _selectedKindRefKey;
+            OutputProductState.LastKindName = _selectedKindName;
+        }
+
+        private void ApplySimpleValidationErrors(Dictionary<string, string> errors)
+        {
+            foreach (var kv in errors)
+            {
+                var key = (kv.Key ?? "").ToLowerInvariant();
+                var msg = kv.Value ?? "";
+
+                if (key.Contains("name"))
+                {
+                    NameError.Text = msg;
+                    NameBox.Background = System.Windows.Media.Brushes.MistyRose;
+                }
+                else if (key.Contains("art"))
+                {
+                    ArticleError.Text = msg;
+                    ArticleBox.Background = System.Windows.Media.Brushes.MistyRose;
+                }
+                else if (key.Contains("type"))
+                {
+                    TypeError.Text = msg;
+                    TypeCombo.Background = System.Windows.Media.Brushes.MistyRose;
+                }
+                else if (key.Contains("unit"))
+                {
+                    UnitError.Text = msg;
+                    UnitCombo.Background = System.Windows.Media.Brushes.MistyRose;
+                }
+                else
+                {
+                    // неизвестное поле — выведем в NameError как общий блок
+                    NameError.Text = (NameError.Text + " " + msg).Trim();
+                    NameBox.Background = System.Windows.Media.Brushes.MistyRose;
+                }
+            }
+        }
+
+
+        private void BtnValidate_Click(object sender, RoutedEventArgs e)
+        {
+            ClearErrors();
+
+            if (string.IsNullOrEmpty(_selectedKindRefKey))
+            {
+                MessageBox.Show("Выберите вид номенклатуры в дереве слева.", "ERP");
+                return;
+            }
+
+            var t = TypeCombo.SelectedItem as RefNamedItem;
+            var u = UnitCombo.SelectedItem as RefNamedItem;
+
+            string name = (NameBox.Text ?? "").Trim();
+            string article = (ArticleBox.Text ?? "").Trim();
+
+            try
+            {
+                var errors = ErpClient.ValidateNomenclature(
+                    _selectedKindRefKey,
+                    t != null ? t.RefKey : null,
+                    u != null ? u.RefKey : null,
+                    name,
+                    article);
+
+                if (errors.Count == 0)
+                {
+                    MessageBox.Show("Проверка успешна ✅", "ERP");
+                    return;
+                }
+
+                ApplySimpleValidationErrors(errors); // подсветка полей + текст
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Ошибка проверки: " + ex.Message, "ERP");
+            }
+        }
+
 
         private void RebuildCodesView()
         {
@@ -161,7 +294,29 @@ namespace RevitApi_3
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
-
+            // todo
+            if (_mode == OutputProductWindowMode.PickOrCreate && Tabs.SelectedItem == TabPick) {
+                var picked = CodesGrid.SelectedItem as ErpItem;
+                if (picked != null) {
+                    if (string.IsNullOrWhiteSpace(NameBox.Text)) {
+                        NameBox.Text = picked.Name ?? "";
+                    }
+                    if (!string.IsNullOrWhiteSpace(picked.Unit) && UnitCombo.SelectedItem == null) {
+                        foreach (var u in _units)
+                        {
+                            if (string.Equals(u.Name, picked.Unit, StringComparison.OrdinalIgnoreCase)) {
+                                UnitCombo.SelectedItem = u;
+                                break;
+                            }
+                        }
+                    }
+                    Tabs.SelectedItem= TabCreate;
+                    return;
+                }
+                Tabs.SelectedItem = TabCreate;
+                return;
+            }
+            // 
             var selectedType = TypeCombo.SelectedItem as RefNamedItem;
             var selectedUnit = UnitCombo.SelectedItem as RefNamedItem;
             string name = NameBox.Text != null ? NameBox.Text.Trim() : "";
@@ -189,47 +344,6 @@ namespace RevitApi_3
             {
                 MessageBox.Show("Ошибка при создании номенклатуры: " + ex.Message,
                     "ERP", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-        private void BtnValidate_Click(object sender, RoutedEventArgs e)
-        {
-            Tabs.SelectedItem = TabCreate; // проверяем именно форму создания
-
-            ClearErrors();
-
-            if (string.IsNullOrEmpty(_selectedKindRefKey))
-            {
-                MessageBox.Show("Выберите вид номенклатуры в дереве слева.", "ERP",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            var selectedType = TypeCombo.SelectedItem as RefNamedItem;
-            var selectedUnit = UnitCombo.SelectedItem as RefNamedItem;
-
-            string name = NameBox.Text != null ? NameBox.Text.Trim() : "";
-            string article = ArticleBox.Text != null ? ArticleBox.Text.Trim() : "";
-
-            try
-            {
-                ErpClient.ValidateNomenclature(
-                    _selectedKindRefKey,
-                    selectedType != null ? selectedType.RefKey : null,
-                    selectedUnit != null ? selectedUnit.RefKey : null,
-                    name,
-                    article);
-
-                MessageBox.Show("Проверка пройдена: данные корректны.", "ERP",
-                    MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            catch (ErpValidationException vex)
-            {
-                ApplyValidationErrors(vex.Errors);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("Ошибка проверки: " + ex.Message, "ERP",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 

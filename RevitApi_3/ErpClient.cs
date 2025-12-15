@@ -13,11 +13,12 @@ namespace RevitApi_3
         // TODO: подставь реальные адреса/методы из 1С
         private const string TreeUrl = "http://pow18-08:8000/types";
         private const string CodesUrl = "http://pow18-08:8000/nomens";
-        private const string TypesUrl = "http://pow18-08:8000/nomen/types/form/";
+        private const string TypesUrl = "http://pow18-08:8000/nomen/kind/form/";
         private const string UnitsUrl = "http://pow18-08:8000/nomen/units/form/";
         private const string CreateUrl = "http://pow18-08:8000/nomen/create/";
         private const string ExportResourcesUrl = "http://pow18-08:8000/accept";
         private const string ValidateUrl = "https://erp.example.com/api/validate_nomenclature";
+        private const string ValidateNomenclatureUrl = "https://erp.example.com/api/validate_nomenclature";
 
         // DTO для дерева
         private class ErpTreeItemDto
@@ -31,7 +32,6 @@ namespace RevitApi_3
         {
             public string Code { get; set; }
             public string Name { get; set; }
-            public string Extra { get; set; }
             public string Unit { get; set; }
         }
 
@@ -100,7 +100,6 @@ namespace RevitApi_3
             {
                 Code = d.Code,
                 Name = d.Name,
-                Extra = d.Extra,
                 Unit = d.Unit
             }).ToList();
         }
@@ -184,7 +183,6 @@ namespace RevitApi_3
                     Code = dto.Code,
                     Name = dto.Name,
                     Unit = dto.Unit,
-                    Extra = dto.Extra
                 };
             }
 
@@ -218,15 +216,16 @@ namespace RevitApi_3
 
             var rowList = rows.Select(r => new
             {
+                Stage = r.Stage,
                 r.ScheduleName,
                 r.FamilyName,
                 r.TypeName,
                 r.DisplayName,
                 r.ErpCode,
                 r.Unit,
-                Quantity = r.Quantity,
-                MassPerItem = r.MassPerItem,
-                TotalMass = r.TotalMass
+                Quantity = r.QuantityText,
+                MassPerItem = r.MassPerItemText,
+                TotalMass = r.TotalMassText
             }).ToList();
 
             var payload = new
@@ -248,9 +247,9 @@ namespace RevitApi_3
             return response;
         }
 
-        public static void ValidateNomenclature(
-    string kindRef, string typeRef, string unitRef,
-    string name, string article)
+        public static Dictionary<string, string> ValidateNomenclature(
+            string kindRef, string typeRef, string unitRef,
+            string name, string article)
         {
             var payload = new
             {
@@ -265,25 +264,24 @@ namespace RevitApi_3
             string json = JsonConvert.SerializeObject(payload);
 
             HttpStatusCode status;
-            string response = PostJson(ValidateUrl, json, out status);
+            string body = PostJson(ValidateNomenclatureUrl, json, out status); // URL добавь
 
-            if (status == HttpStatusCode.OK) // 200
-                return;
+            if (status == HttpStatusCode.OK)
+                return new Dictionary<string, string>(); // всё ок
 
-            if (status == HttpStatusCode.BadRequest) // 400: { "field": "error", ... }
+            if (status == HttpStatusCode.BadRequest)
             {
-                var dict = JsonConvert.DeserializeObject<Dictionary<string, string>>(response)
+                // { "FieldName": "error text", ... }
+                var dict = JsonConvert.DeserializeObject<Dictionary<string, string>>(body)
                            ?? new Dictionary<string, string>();
-
-                var normalized = new Dictionary<string, List<string>>();
-                foreach (var kv in dict)
-                    normalized[kv.Key] = new List<string> { kv.Value ?? "" };
-
-                throw new ErpValidationException(normalized);
+                return dict;
             }
 
-            throw new Exception("Неуспешный код ответа при проверке: " + (int)status);
+            throw new Exception("ValidateNomenclature: неожиданный статус " + (int)status);
         }
+
+
+
 
 
         /// <summary>

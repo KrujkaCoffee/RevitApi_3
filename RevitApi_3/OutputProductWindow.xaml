@@ -69,8 +69,8 @@
                     </TabItem>
 
                     <!-- Создание -->
-                    <TabItem x:Name="TabCreate" Header="Создание">
-                        <Grid Margin="0,4,0,0">
+                    <TabItem x:Name="TabCreate" Header="Создание" IsEnabled="True">
+                        <Grid Margin="0,4,0,0" >
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
@@ -88,22 +88,28 @@
                             <TextBlock Grid.Row="0" Grid.Column="1" x:Name="KindLabel" Margin="0,0,0,4"/>
 
                             <!-- Тип номенклатуры -->
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Тип:" Margin="0,0,4,4" VerticalAlignment="Center"/>
-                            <ComboBox Grid.Row="1" Grid.Column="1" x:Name="TypeCombo" Margin="0,0,0,4"/>
-                            <TextBlock Grid.Row="1" Grid.ColumnSpan="2" x:Name="TypeError"
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Тип:" Margin="0,0,4,4" VerticalAlignment="Top"  />
+                            <StackPanel Grid.Row="1" Grid.Column="1">
+                                <ComboBox x:Name="TypeCombo" Margin="0,0,0,4"   IsEnabled="True" DisplayMemberPath="Name" IsTextSearchEnabled="True" SelectedValuePath="RefKey"/>
+                                <TextBlock  x:Name="TypeError"
                                        Foreground="Red" FontSize="10"/>
+                            </StackPanel>
 
                             <!-- Единица измерения -->
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Ед. изм.:" Margin="0,0,4,4" VerticalAlignment="Center"/>
-                            <ComboBox Grid.Row="2" Grid.Column="1" x:Name="UnitCombo" Margin="0,0,0,4"/>
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Ед. изм.:" Margin="0,0,4,4" VerticalAlignment="Top"/>
+                            <StackPanel Grid.Row="2" Grid.Column="1">
+
+                                <ComboBox  PreviewTextInput="UnitCombo_PreviewTextInput" x:Name="UnitCombo" Margin="0,0,0,4" IsEnabled="True" DisplayMemberPath="Name" IsTextSearchEnabled="True" SelectedValuePath="RefKey"/>
                             <TextBlock Grid.Row="2" Grid.ColumnSpan="2" x:Name="UnitError"
                                        Foreground="Red" FontSize="10"/>
-
+                            </StackPanel>
                             <!-- Наименование -->
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Наименование:" Margin="0,0,4,4" VerticalAlignment="Center"/>
-                            <TextBox Grid.Row="3" Grid.Column="1" x:Name="NameBox" Margin="0,0,0,4"/>
-                            <TextBlock Grid.Row="3" Grid.ColumnSpan="2" x:Name="NameError"
-                                       Foreground="Red" FontSize="10"/>
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Наименование:" Margin="0,0,4,4" VerticalAlignment="Top"/>
+                            <StackPanel Grid.Row="3" Grid.Column="1">
+                                <TextBox  x:Name="NameBox" Margin="0,0,0,4"/>
+                                <TextBlock  x:Name="NameError"
+                                           Foreground="Red" FontSize="10"/>
+                            </StackPanel>
 
                             <!-- Артикул -->
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="Артикул:" Margin="0,0,4,4" VerticalAlignment="Top"/>

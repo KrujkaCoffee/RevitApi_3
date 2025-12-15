@@ -11,4 +11,9 @@ namespace RevitApi_3
         PickOrCreate = 0,
         CreateOnly = 1
     }
+        internal static class OutputProductState
+    {
+        public static string LastKindRefKey;  // lastKindRef
+        public static string LastKindName;    // lastKindName
+    }
 }

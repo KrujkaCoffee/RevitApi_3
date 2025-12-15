@@ -64,7 +64,7 @@ namespace RevitApi_3
                 string initialTitle = string.IsNullOrEmpty(paramTitle) ? defaultTitle : paramTitle;
 
                 string ctx = "Спецификация: " + vs.Name;
-
+                var previewRows = SchedulePreviewBuilder.Build(vs);
                 var win = new ExportWindow(items, ctx, initialTitle, treeRoots, types, units);
                 var helper = new WindowInteropHelper(win);
                 helper.Owner = commandData.Application.MainWindowHandle;
