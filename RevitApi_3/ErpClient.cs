@@ -20,6 +20,7 @@ namespace RevitApi_3
         private const string ExportResourcesUrl = "http://pow18-08:8000/accept";
         private const string ValidateUrl = "http://pow18-08:8000/resource/validate/";
         private const string ValidateNomenclatureUrl = "http://pow18-08:8000/nomen/validate/";
+        private const string StagesUrl = "http://pow18-08:8000/nomen/stages/form/";
 
         // DTO для дерева
         private class ErpTreeItemDto
@@ -40,6 +41,24 @@ namespace RevitApi_3
         {
             public string Ref_Key { get; set; }
             public string Description { get; set; }
+        }
+        public static List<RefNamedItem> LoadStages()
+        {
+            var requestObj = new { action = "get_stages" };
+            string json = JsonConvert.SerializeObject(requestObj);
+            HttpStatusCode code;
+            string response = PostJson(StagesUrl, json, out code); // StagesUrl добавь как const
+
+            var dtos = JsonConvert.DeserializeObject<List<RefNamedItemDto>>(response)
+                       ?? new List<RefNamedItemDto>();
+
+            var result = new List<RefNamedItem>();
+            foreach (var dto in dtos)
+            {
+                if (string.IsNullOrEmpty(dto.Ref_Key)) continue;
+                result.Add(new RefNamedItem { RefKey = dto.Ref_Key, Name = dto.Description });
+            }
+            return result;
         }
 
         /// <summary>Загрузка дерева классификатора.</summary>
@@ -293,40 +312,6 @@ namespace RevitApi_3
 
             throw new Exception("ValidateNomenclature: неожиданный статус " + (int)status);
         }
-        public static string ExportResources(string title, string contextInfo, ScheduleExportTable table, ErpItem outputProduct)
-        {
-            if (table == null) throw new ArgumentNullException(nameof(table));
-            if (outputProduct == null) throw new ArgumentNullException(nameof(outputProduct));
-
-            // Собираем rows строго по колонкам payload (видимые + "системные скрытые")
-            var rows = new JArray();
-            foreach (var r in table.Rows)
-            {
-                var obj = new JObject();
-                foreach (var c in table.PayloadColumns)
-                {
-                    string v;
-                    r.Payload.TryGetValue(c.Key, out v);
-                    obj[c.Key] = v ?? "";
-                }
-                rows.Add(obj);
-            }
-
-            var body = new JObject
-            {
-                ["title"] = title,
-                ["context"] = contextInfo,
-                ["outputProduct"] = JObject.FromObject(outputProduct),
-                ["rows"] = rows
-            };
-
-            string json = body.ToString(Newtonsoft.Json.Formatting.None);
-
-            // ВАЖНО: тут используй свой актуальный URL/метод выгрузки (у тебя он уже "под капотом")
-            // Например: return PostJson(ExportUrl, json, out _);
-            return PostJson(ExportResourcesUrl, json, out _);
-        }
-
 
 
         /// <summary>

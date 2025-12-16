@@ -38,19 +38,33 @@ namespace RevitApi_3
                 //    TaskDialog.Show("ERP", "В активной спецификации нет элементов для выгрузки.");
                 //    return Result.Succeeded;
                 //}
-                var exportRows = ScheduleToExportRows.Build(vs);
-                if (exportRows.Count == 0)
+                //var exportRows = ScheduleToExportRows.Build(vs);
+                //var snap = ScheduleTableReader.Read(doc, vs, ErpParameters.ErpCodeParamName);
+                var elems = ScheduleSemanticExport.BuildExportRows(doc, vs);
+                var items = new List<RevitItem>();
+                foreach (var el in elems)
                 {
-                    TaskDialog.Show("ERP",
-                        "В активной спецификации нет строк данных для выгрузки (проверь фильтры/группировку).");
-                    return Result.Succeeded;
+
+                    items.Add(new RevitItem
+                    {
+                        ScheduleName = vs.Name,
+                        // дальше как у тебя: FamilyName/TypeName/DisplayName/Unit/MassPerItem/Stage...
+                        ErpCode = erp,
+                        ElementId = el.Id
+                    });
                 }
+                //if (snap.Count == 0)
+                //{
+                //    TaskDialog.Show("ERP",
+                //        "В активной спецификации нет строк данных для выгрузки (проверь фильтры/группировку).");
+                //    return Result.Succeeded;
+                //}
 
                 // 2. Загружаем дерево, типы и единицы для выбора выходного изделия
                 List<ErpTreeNode> treeRoots;
                 List<RefNamedItem> types;
                 List<RefNamedItem> units;
-
+                var stages = ErpClient.LoadStages();
                 try
                 {
                     treeRoots = ErpClient.LoadErpTree();
@@ -72,7 +86,7 @@ namespace RevitApi_3
 
                 string ctx = "Спецификация: " + vs.Name;
                 //var previewRows = SchedulePreviewBuilder.Build(vs);
-                var win = new ExportWindow(exportRows, ctx, initialTitle, treeRoots, types, units);
+                var win = new ExportWindow(items, ctx, initialTitle, treeRoots, types, units, stages);
                 var helper = new WindowInteropHelper(win);
                 helper.Owner = commandData.Application.MainWindowHandle;
 

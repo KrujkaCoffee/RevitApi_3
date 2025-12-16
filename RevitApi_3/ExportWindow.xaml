@@ -2,24 +2,20 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Выгрузка ресурсной в ERP"
-        Height="550" Width="950"
-        
+        Height="550" Width="1100"
         WindowStartupLocation="CenterOwner">
     <Grid x:Name="RootGrid" Margin="8">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <!-- верх: title + выходное изделие -->
             <RowDefinition Height="*"/>
-            <!-- таблица -->
             <RowDefinition Height="Auto"/>
-            <!-- низ -->
         </Grid.RowDefinitions>
 
         <!-- Верх -->
         <StackPanel Grid.Row="0" Margin="0,0,0,8">
             <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                 <TextBlock Text="Title:" VerticalAlignment="Center"/>
-                <TextBox x:Name="TitleBox" Width="300" Margin="6,0,0,0"/>
+                <TextBox x:Name="TitleBox" Width="320" Margin="6,0,0,0"/>
                 <TextBlock x:Name="ContextLabel" Margin="12,0,0,0"
                            VerticalAlignment="Center"
                            TextWrapping="Wrap"/>
@@ -28,51 +24,25 @@
             <GroupBox Header="Выходное изделие">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="Наименование:" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="OutputNameText"
-                               Margin="4,0,16,0"
-                               VerticalAlignment="Center"/>
+                    <TextBlock x:Name="OutputNameText" Margin="4,0,16,0" VerticalAlignment="Center"/>
 
                     <TextBlock Text="Код:" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="OutputCodeText"
-                               Margin="4,0,16,0"
-                               VerticalAlignment="Center"/>
+                    <TextBlock x:Name="OutputCodeText" Margin="4,0,16,0" VerticalAlignment="Center"/>
 
                     <Button x:Name="BtnPickOutput"
                             Content="🔍 Подобрать / создать"
                             Margin="8,0,0,0"
                             Padding="6,2"
                             Click="BtnPickOutput_Click"/>
-                    <StackPanel Orientation="Horizontal" Margin="8,0,0,4">
-                        <TextBlock Text="Начало действия ресурсной:" VerticalAlignment="Center"/>
-                        <DatePicker x:Name="StartDatePicker" Width="130" Margin="6,0,16,0"/>
-
-                        <TextBlock Text="Автор:" VerticalAlignment="Center"/>
-                        <TextBlock x:Name="AuthorText" Margin="6,0,0,0" VerticalAlignment="Center"/>
-                    </StackPanel>
-
                 </StackPanel>
             </GroupBox>
         </StackPanel>
 
-        <!-- Таблица ресурсной -->
-        <GroupBox Grid.Row="1" Header="Предпросмотр ресурсной для выгрузки в ERP">
+        <!-- Таблица -->
+        <GroupBox Grid.Row="1" Header="Предпросмотр (как в спецификации)">
             <DataGrid x:Name="ExportGrid"
                       AutoGenerateColumns="False"
-                      IsReadOnly="True">
-                <DataGrid.Columns>
-
-                    <DataGridTextColumn Header="Этап" Binding="{Binding Stage}" Width="Auto" MinWidth="80"/>
-                    <DataGridTextColumn Header="Спецификация" Binding="{Binding ScheduleName}" Width="*"/>
-                    <DataGridTextColumn Header="Семейство" Binding="{Binding FamilyName}" Width="*"/>
-                    <DataGridTextColumn Header="Тип" Binding="{Binding TypeName}" Width="*"/>
-                    <DataGridTextColumn Header="Наименование" Binding="{Binding DisplayName}" Width="2*"/>
-                    <DataGridTextColumn Header="Код 1C-ERP" Binding="{Binding ErpCode}" Width="*"/>
-                    <DataGridTextColumn Header="Ед. изм." Binding="{Binding Unit}" Width="Auto" MinWidth="70"/>
-                    <DataGridTextColumn Header="Кол-во" Binding="{Binding QuantityText}" Width="Auto" MinWidth="70"/>
-                    <DataGridTextColumn Header="Масса / шт" Binding="{Binding MassPerItemText}" Width="Auto" MinWidth="80"/>
-                    <DataGridTextColumn Header="Масса всего" Binding="{Binding TotalMassText}" Width="Auto" MinWidth="90"/>
-                </DataGrid.Columns>
-
+                      IsReadOnly="False">
                 <DataGrid.RowStyle>
                     <Style TargetType="DataGridRow">
                         <Style.Triggers>

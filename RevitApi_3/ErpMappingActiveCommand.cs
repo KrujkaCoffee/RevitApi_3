@@ -57,7 +57,6 @@ namespace RevitApi_3
                     TaskDialog.Show("ERP", "Сервис недоступен. Дерево номенклатуры получить не удалось.");
                     return Result.Succeeded;
                 }
-
                 string ctx = "Спецификация: " + vs.Name;
                 var win = new MappingWindow(itemsByType, treeRoots, ctx);
                 var helper = new System.Windows.Interop.WindowInteropHelper(win);
