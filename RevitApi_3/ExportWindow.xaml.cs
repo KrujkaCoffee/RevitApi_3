@@ -26,7 +26,7 @@ namespace RevitApi_3
         public string DocTitle => (TitleBox.Text ?? "").Trim();
 
         public ExportWindow(
-            ScheduleExportTable table,
+            List<ExportRow> exportRows,
             string contextInfo,
             string initialTitle,
             List<ErpTreeNode> treeRoots,
@@ -35,37 +35,34 @@ namespace RevitApi_3
         {
             InitializeComponent();
 
-            _table = table ?? new ScheduleExportTable();
+            _sourceItems = new List<RevitItem>(); // можно оставить пустым
             _contextInfo = contextInfo ?? "";
 
             _treeRoots = treeRoots ?? new List<ErpTreeNode>();
             _types = types ?? new List<RefNamedItem>();
             _units = units ?? new List<RefNamedItem>();
 
+            _exportRows = exportRows ?? new List<ExportRow>();
+            ExportGrid.ItemsSource = _exportRows;
+
             TitleBox.Text = initialTitle ?? string.Empty;
             ContextLabel.Text = _contextInfo;
 
             this.Title = "Выгрузка ресурсной в ERP — " + _contextInfo;
-
-            ExportGrid.ItemsSource = _table.Rows;
-            BuildColumnsFromSchedule();
-
-            // просто чтобы алиасы реально были использованы (как ты просил)
-            WpfGrid grid = RootGrid;
-            WpfTextBox titleBox = TitleBox;
         }
+
 
         private void BuildColumnsFromSchedule()
         {
             ExportGrid.Columns.Clear();
 
-            for (int i = 0; i < _table.UiColumns.Count; i++)
+            for (int i = 0; i < _table.Headers.Count; i++)
             {
-                var c = _table.UiColumns[i];
+                var c = _table.Headers[i];
 
                 ExportGrid.Columns.Add(new DataGridTextColumn
                 {
-                    Header = c.Header,
+                    Header = c.,
                     Binding = new Binding($"Values[{i}]"),
                     IsReadOnly = true
                 });

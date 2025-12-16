@@ -76,14 +76,11 @@ namespace RevitApi_3
 
     public class ScheduleExportTable
     {
-        public string ScheduleName { get; set; }
+        public List<string> Headers { get; set; } = new List<string>();
+        public List<ScheduleExportRow> Rows { get; set; } = new List<ScheduleExportRow>();
 
-        public List<ScheduleExportColumn> UiColumns { get; } = new List<ScheduleExportColumn>();
-        public List<ScheduleExportColumn> PayloadColumns { get; } = new List<ScheduleExportColumn>();
-        public List<ScheduleExportRow> Rows { get; } = new List<ScheduleExportRow>();
-
-        public int UiErpCodeIndex { get; set; } = -1;
-        public int UiUnitIndex { get; set; } = -1;
+        public int ErpCodeCol { get; set; } = -1;
+        public int UnitCol { get; set; } = -1;
     }
 
     // HTTP tables

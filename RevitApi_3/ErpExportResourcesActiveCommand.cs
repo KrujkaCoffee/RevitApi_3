@@ -38,13 +38,13 @@ namespace RevitApi_3
                 //    TaskDialog.Show("ERP", "В активной спецификации нет элементов для выгрузки.");
                 //    return Result.Succeeded;
                 //}
-                var previewRows = ScheduleExportBuilder.Build(vs);
-                //if (previewRows.Count == 0)
-                //{
-                //    TaskDialog.Show("ERP",
-                //        "В активной спецификации нет строк данных для выгрузки (проверь фильтры/группировку).");
-                //    return Result.Succeeded;
-                //}
+                var exportRows = ScheduleToExportRows.Build(vs);
+                if (exportRows.Count == 0)
+                {
+                    TaskDialog.Show("ERP",
+                        "В активной спецификации нет строк данных для выгрузки (проверь фильтры/группировку).");
+                    return Result.Succeeded;
+                }
 
                 // 2. Загружаем дерево, типы и единицы для выбора выходного изделия
                 List<ErpTreeNode> treeRoots;
@@ -72,7 +72,7 @@ namespace RevitApi_3
 
                 string ctx = "Спецификация: " + vs.Name;
                 //var previewRows = SchedulePreviewBuilder.Build(vs);
-                var win = new ExportWindow(previewRows, ctx, initialTitle, treeRoots, types, units);
+                var win = new ExportWindow(exportRows, ctx, initialTitle, treeRoots, types, units);
                 var helper = new WindowInteropHelper(win);
                 helper.Owner = commandData.Application.MainWindowHandle;
 

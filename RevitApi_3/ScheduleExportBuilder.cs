@@ -1,112 +1,96 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Reflection;
 using Autodesk.Revit.DB;
 
 namespace RevitApi_3
 {
     internal static class ScheduleExportBuilder
     {
-        // Скрытые колонки, которые НЕ показываем в UI, но включаем в payload.
-        // Подстрой под свой реальный заголовок "системной" 1С колонки в спецификации.
-        private static readonly string[] SystemColumnTokens = new[]
-        {
-            "ref_key", "refkey", "guid", "1c", "1с", "ссылка", "uuid", "ключ"
-        };
-
-        // Как ищем колонку ERP-кода для подсветки (по заголовку колонки)
-        private static readonly string[] ErpCodeTokens = new[]
-        {
-            "код 1c", "код 1с", "код erp", "1c-erp", "1с-erp", "1c erp", "1с erp", "erp"
-        };
-
-        // Единица измерения (если она есть видимой колонкой)
-        private static readonly string[] UnitTokens = new[]
-        {
-            "ед", "ед.", "ед. изм", "единиц", "unit"
-        };
-
         public static ScheduleExportTable Build(ViewSchedule vs)
         {
-            if (vs == null) throw new ArgumentNullException(nameof(vs));
-
-            var table = new ScheduleExportTable { ScheduleName = vs.Name };
+            var table = new ScheduleExportTable();
 
             TableData td = vs.GetTableData();
             TableSectionData header = td.GetSectionData(SectionType.Header);
             TableSectionData body = td.GetSectionData(SectionType.Body);
 
-            int headerRow = Math.Max(0, header.NumberOfRows - 1);
+            int cols = body.NumberOfColumns;
 
-            // 1) Заголовки по всем колонкам body (даже скрытым)
-            var allHeaders = new List<string>();
-            for (int c = 0; c < body.NumberOfColumns; c++)
+            // 1) Пытаемся снять заголовки из SectionType.Header
+            var headers = new List<string>();
+            var used = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            bool anyHeaderText = false;
+            if (header != null && header.NumberOfRows > 0)
             {
-                string h = SafeGetCellText(vs, SectionType.Header, headerRow, c);
-                if (string.IsNullOrWhiteSpace(h)) h = "Column_" + (c + 1);
-                allHeaders.Add(h.Trim());
-            }
-
-            // 2) Колонки UI + payload
-            var usedKeys = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-
-            for (int c = 0; c < body.NumberOfColumns; c++)
-            {
-                string headerText = allHeaders[c];
-
-                bool hidden = IsHiddenColumn(body, c);
-                bool isSystem = ContainsAnyToken(headerText, SystemColumnTokens);
-
-                bool showInUi = !hidden;
-                bool includeInPayload = showInUi || isSystem;
-
-                if (!showInUi && !includeInPayload)
-                    continue;
-
-                // ВАЖНО: Key в payload делаем максимально близким к Header,
-                // но если есть дубликаты — добавим суффикс.
-                string key = DedupKey(headerText, usedKeys);
-
-                var col = new ScheduleExportColumn
+                for (int c = 0; c < cols; c++)
                 {
-                    Header = headerText,
-                    Key = key,
-                    ScheduleColumnIndex = c,
-                    ShowInUi = showInUi,
-                    IncludeInPayload = includeInPayload
-                };
+                    string h = "";
+                    for (int r = 0; r < header.NumberOfRows; r++)
+                    {
+                        string t = SafeGetCellText(vs, SectionType.Header, r, c);
+                        if (!string.IsNullOrWhiteSpace(t))
+                        {
+                            anyHeaderText = true;
+                            h = t.Trim(); // берём "нижний" непустой
+                        }
+                    }
 
-                if (showInUi) table.UiColumns.Add(col);
-                if (includeInPayload) table.PayloadColumns.Add(col);
+                    headers.Add(h);
+                }
             }
 
-            table.UiErpCodeIndex = FindUiIndex(table.UiColumns, ErpCodeTokens);
-            table.UiUnitIndex = FindUiIndex(table.UiColumns, UnitTokens);
+            int bodyStartRow = 0;
 
-            // 3) Строки: берем ровно то, что в body (и что не скрыто строкой)
-            for (int r = 0; r < body.NumberOfRows; r++)
+            // 2) Если заголовков в Header реально нет (кейс "показывать шапку" выключено),
+            //    берём заголовки из первой строки Body и сдвигаем старт данных.
+            if (!anyHeaderText && body.NumberOfRows > 0)
             {
-                if (IsHiddenRow(body, r)) continue;
+                headers.Clear();
+                for (int c = 0; c < cols; c++)
+                {
+                    string h = SafeGetCellText(vs, SectionType.Body, 0, c);
+                    headers.Add((h ?? "").Trim());
+                }
+                bodyStartRow = 1;
+            }
 
+            // 3) Добиваем пустые/уникальность
+            for (int c = 0; c < headers.Count; c++)
+            {
+                string h = headers[c];
+                if (string.IsNullOrWhiteSpace(h))
+                    h = "Column_" + c;
+
+                if (used.TryGetValue(h, out int n))
+                {
+                    n++;
+                    used[h] = n;
+                    h = h + " (" + n + ")";
+                }
+                else used[h] = 1;
+
+                headers[c] = h;
+            }
+
+            table.Headers = headers;
+
+            table.ErpCodeCol = FindColumn(headers, "Код 1C-ERP", "Код 1С-ERP", "ERP", "Код");
+            table.UnitCol = FindColumn(headers, "Ед", "Единица", "Unit");
+
+            // 4) Строки Body 1:1
+            for (int r = bodyStartRow; r < body.NumberOfRows; r++)
+            {
                 var row = new ScheduleExportRow();
 
-                foreach (var uiCol in table.UiColumns)
-                {
-                    string v = SafeGetCellText(vs, SectionType.Body, r, uiCol.ScheduleColumnIndex);
-                    row.Values.Add(v);
-                }
+                for (int c = 0; c < cols; c++)
+                    row.Values.Add(SafeGetCellText(vs, SectionType.Body, r, c) ?? "");
 
-                foreach (var pCol in table.PayloadColumns)
-                {
-                    string v = SafeGetCellText(vs, SectionType.Body, r, pCol.ScheduleColumnIndex);
-                    row.Payload[pCol.Key] = v;
-                }
+                if (table.ErpCodeCol >= 0 && table.ErpCodeCol < row.Values.Count)
+                    row.ErpCode = row.Values[table.ErpCodeCol];
 
-                if (table.UiErpCodeIndex >= 0 && table.UiErpCodeIndex < row.Values.Count)
-                    row.ErpCode = row.Values[table.UiErpCodeIndex];
-
-                if (table.UiUnitIndex >= 0 && table.UiUnitIndex < row.Values.Count)
-                    row.Unit = row.Values[table.UiUnitIndex];
+                if (table.UnitCol >= 0 && table.UnitCol < row.Values.Count)
+                    row.Unit = row.Values[table.UnitCol];
 
                 table.Rows.Add(row);
             }
@@ -114,70 +98,25 @@ namespace RevitApi_3
             return table;
         }
 
-        private static int FindUiIndex(List<ScheduleExportColumn> uiCols, string[] tokens)
+        private static string SafeGetCellText(TableView tv, SectionType sec, int r, int c)
         {
-            for (int i = 0; i < uiCols.Count; i++)
-            {
-                string h = uiCols[i].Header ?? "";
-                if (ContainsAnyToken(h, tokens)) return i;
-            }
-            return -1;
-        }
-
-        private static bool ContainsAnyToken(string text, IEnumerable<string> tokens)
-        {
-            if (string.IsNullOrEmpty(text)) return false;
-            foreach (var t in tokens)
-            {
-                if (string.IsNullOrEmpty(t)) continue;
-                if (text.IndexOf(t, StringComparison.OrdinalIgnoreCase) >= 0) return true;
-            }
-            return false;
-        }
-
-        private static string DedupKey(string key, Dictionary<string, int> used)
-        {
-            key = (key ?? "").Trim();
-            if (key.Length == 0) key = "Column";
-
-            if (!used.ContainsKey(key))
-            {
-                used[key] = 1;
-                return key;
-            }
-
-            int n = used[key] + 1;
-            used[key] = n;
-            return key + "_" + n;
-        }
-
-        private static string SafeGetCellText(ViewSchedule vs, SectionType sec, int r, int c)
-        {
-            try { return vs.GetCellText(sec, r, c) ?? ""; }
+            try { return tv.GetCellText(sec, r, c); }
             catch { return ""; }
         }
 
-        // Reflection — чтобы не зависеть от наличия IsColumnHidden/IsRowHidden в конкретной версии API
-        private static bool IsHiddenColumn(TableSectionData sec, int col)
+        private static int FindColumn(List<string> headers, params string[] tokens)
         {
-            try
+            for (int i = 0; i < headers.Count; i++)
             {
-                MethodInfo mi = sec.GetType().GetMethod("IsColumnHidden", new[] { typeof(int) });
-                if (mi == null) return false;
-                return (bool)mi.Invoke(sec, new object[] { col });
+                string h = headers[i] ?? "";
+                foreach (var t in tokens)
+                {
+                    if (string.IsNullOrEmpty(t)) continue;
+                    if (h.IndexOf(t, StringComparison.OrdinalIgnoreCase) >= 0)
+                        return i;
+                }
             }
-            catch { return false; }
-        }
-
-        private static bool IsHiddenRow(TableSectionData sec, int row)
-        {
-            try
-            {
-                MethodInfo mi = sec.GetType().GetMethod("IsRowHidden", new[] { typeof(int) });
-                if (mi == null) return false;
-                return (bool)mi.Invoke(sec, new object[] { row });
-            }
-            catch { return false; }
+            return -1;
         }
     }
 }
