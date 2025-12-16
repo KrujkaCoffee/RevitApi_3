@@ -17,8 +17,8 @@ namespace RevitApi_3
         private const string UnitsUrl = "http://pow18-08:8000/nomen/units/form/";
         private const string CreateUrl = "http://pow18-08:8000/nomen/create/";
         private const string ExportResourcesUrl = "http://pow18-08:8000/accept";
-        private const string ValidateUrl = "https://erp.example.com/api/validate_nomenclature";
-        private const string ValidateNomenclatureUrl = "https://erp.example.com/api/validate_nomenclature";
+        private const string ValidateUrl = "http://pow18-08:8000/resource/validate/";
+        private const string ValidateNomenclatureUrl = "http://pow18-08:8000/nomen/validate/";
 
         // DTO для дерева
         private class ErpTreeItemDto
@@ -251,27 +251,35 @@ namespace RevitApi_3
             string kindRef, string typeRef, string unitRef,
             string name, string article)
         {
+            // Отправляем “алиасы” (как ты просил) + дублируем ref-ключи
             var payload = new
             {
                 action = "validate_nomenclature",
+
+                // “тех” поля (ref)
                 kind_ref = kindRef,
                 type_ref = typeRef,
                 unit_ref = unitRef,
-                name = name,
-                article = article
+
+                // “человекочитаемые” поля
+                Наименование = name,
+                Артикул = article,
+                ВидНоменклатуры = kindRef,
+                ТипНоменклатуры = typeRef,
+                ЕдиницаИзмерения = unitRef
             };
 
             string json = JsonConvert.SerializeObject(payload);
 
             HttpStatusCode status;
-            string body = PostJson(ValidateNomenclatureUrl, json, out status); // URL добавь
+            string body = PostJson(ValidateUrl, json, out status);
 
             if (status == HttpStatusCode.OK)
                 return new Dictionary<string, string>(); // всё ок
 
             if (status == HttpStatusCode.BadRequest)
             {
-                // { "FieldName": "error text", ... }
+                // ожидаем { "FieldName": "error text", ... }
                 var dict = JsonConvert.DeserializeObject<Dictionary<string, string>>(body)
                            ?? new Dictionary<string, string>();
                 return dict;
@@ -279,9 +287,6 @@ namespace RevitApi_3
 
             throw new Exception("ValidateNomenclature: неожиданный статус " + (int)status);
         }
-
-
-
 
 
         /// <summary>

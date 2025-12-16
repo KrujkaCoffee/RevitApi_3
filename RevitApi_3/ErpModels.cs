@@ -84,4 +84,20 @@ namespace RevitApi_3
         public int ErpCodeCol { get; set; } = -1;
         public int UnitCol { get; set; } = -1;
     }
+
+
+    public class ValidateResouceFieldsMessages
+    {
+        public string creator { get; set; } = "";
+        public string title { get; set; } = "";
+        public string output_dse { get; set; } = "";
+        public string date_start { get; set; } = "";
+    }
+
+    public class ValidateResourceResponse
+    { 
+        public ValidateResouceFieldsMessages fields { get; set; }
+        public List<string> global { get; set; }
+    
+    }
 }

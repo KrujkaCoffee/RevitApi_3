@@ -32,10 +32,17 @@ namespace RevitApi_3
                 }
 
                 // 1. Элементы из этой спецификации
-                var items = RevitCollectors.CollectFromSchedule(doc, vs);
-                if (items.Count == 0)
+                //var items = RevitCollectors.CollectFromSchedule(doc, vs);
+                //if (items.Count == 0)
+                //{
+                //    TaskDialog.Show("ERP", "В активной спецификации нет элементов для выгрузки.");
+                //    return Result.Succeeded;
+                //}
+                var previewRows = SchedulePreviewBuilder.Build(vs);
+                if (previewRows.Count == 0)
                 {
-                    TaskDialog.Show("ERP", "В активной спецификации нет элементов для выгрузки.");
+                    TaskDialog.Show("ERP",
+                        "В активной спецификации нет строк данных для выгрузки (проверь фильтры/группировку).");
                     return Result.Succeeded;
                 }
 
@@ -64,8 +71,8 @@ namespace RevitApi_3
                 string initialTitle = string.IsNullOrEmpty(paramTitle) ? defaultTitle : paramTitle;
 
                 string ctx = "Спецификация: " + vs.Name;
-                var previewRows = SchedulePreviewBuilder.Build(vs);
-                var win = new ExportWindow(items, ctx, initialTitle, treeRoots, types, units);
+                //var previewRows = SchedulePreviewBuilder.Build(vs);
+                var win = new ExportWindow(previewRows, ctx, initialTitle, treeRoots, types, units);
                 var helper = new WindowInteropHelper(win);
                 helper.Owner = commandData.Application.MainWindowHandle;
 

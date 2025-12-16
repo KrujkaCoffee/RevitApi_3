@@ -29,7 +29,10 @@ namespace RevitApi_3
         public string DocTitle => TitleBox.Text != null ? TitleBox.Text.Trim() : string.Empty;
 
         public ExportWindow(
-            List<RevitItem> items,
+            //ScheduleExportTable table,
+            //ExportFormRefs refs,
+
+            List<ExportRow> previewRows,
             string contextInfo,
             string initialTitle,
             List<ErpTreeNode> treeRoots,
@@ -38,23 +41,17 @@ namespace RevitApi_3
         {
             InitializeComponent();
 
-            _sourceItems = items ?? new List<RevitItem>();
             _contextInfo = contextInfo ?? "";
-
             _treeRoots = treeRoots ?? new List<ErpTreeNode>();
             _types = types ?? new List<RefNamedItem>();
             _units = units ?? new List<RefNamedItem>();
 
-            _exportRows = BuildExportRows(_sourceItems);
+            // 1:1 как в Revit — никаких группировок/подсчётов тут
+            _exportRows = previewRows ?? new List<ExportRow>();
             ExportGrid.ItemsSource = _exportRows;
-
-            WpfGrid grid = RootGrid;
-            WpfTextBox titleBox = TitleBox;
 
             TitleBox.Text = initialTitle ?? string.Empty;
             ContextLabel.Text = _contextInfo;
-
-            this.Title = "Выгрузка ресурсной в ERP — " + _contextInfo;
         }
 
         private List<ExportRow> BuildExportRows(List<RevitItem> items)
@@ -100,14 +97,17 @@ namespace RevitApi_3
 
         private void BtnPickOutput_Click(object sender, RoutedEventArgs e)
         {
-            // Режим для экспорта: полноценный подбор + создание
+
             var win = new OutputProductWindow(
                 _treeRoots,
                 _types,
                 _units,
-                OutputProductWindowMode.PickOrCreate);
+                OutputProductWindowMode.PickOrCreate,
+                initialName: (TitleBox.Text ?? "").Trim(),
+                initialKindRefKey: OutputProductState.LastKindRefKey,
+                initialKindName: OutputProductState.LastKindName);
 
-            // Важно: owner должен быть текущим окном, а не new IntPtr()
+
             var helper = new WindowInteropHelper(win);
             helper.Owner = new WindowInteropHelper(this).Handle;
 
