@@ -6,7 +6,6 @@ namespace RevitApi_3
 {
     internal static class WindowsUserHelper
     {
-        // fallback через NetUserGetInfo (как в win32net)
         [DllImport("Netapi32.dll", CharSet = CharSet.Unicode)]
         private static extern int NetGetAnyDCName(string serverName, string domainName, out IntPtr bufptr);
 

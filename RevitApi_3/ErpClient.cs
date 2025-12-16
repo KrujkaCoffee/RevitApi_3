@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net;
 using System.Text;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace RevitApi_3
 {
@@ -292,6 +293,40 @@ namespace RevitApi_3
 
             throw new Exception("ValidateNomenclature: неожиданный статус " + (int)status);
         }
+        public static string ExportResources(string title, string contextInfo, ScheduleExportTable table, ErpItem outputProduct)
+        {
+            if (table == null) throw new ArgumentNullException(nameof(table));
+            if (outputProduct == null) throw new ArgumentNullException(nameof(outputProduct));
+
+            // Собираем rows строго по колонкам payload (видимые + "системные скрытые")
+            var rows = new JArray();
+            foreach (var r in table.Rows)
+            {
+                var obj = new JObject();
+                foreach (var c in table.PayloadColumns)
+                {
+                    string v;
+                    r.Payload.TryGetValue(c.Key, out v);
+                    obj[c.Key] = v ?? "";
+                }
+                rows.Add(obj);
+            }
+
+            var body = new JObject
+            {
+                ["title"] = title,
+                ["context"] = contextInfo,
+                ["outputProduct"] = JObject.FromObject(outputProduct),
+                ["rows"] = rows
+            };
+
+            string json = body.ToString(Newtonsoft.Json.Formatting.None);
+
+            // ВАЖНО: тут используй свой актуальный URL/метод выгрузки (у тебя он уже "под капотом")
+            // Например: return PostJson(ExportUrl, json, out _);
+            return PostJson(ExportResourcesUrl, json, out _);
+        }
+
 
 
         /// <summary>

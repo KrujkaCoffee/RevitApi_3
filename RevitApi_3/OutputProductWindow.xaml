@@ -99,7 +99,7 @@
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="Ед. изм.:" Margin="0,0,4,4" VerticalAlignment="Top"/>
                             <StackPanel Grid.Row="2" Grid.Column="1">
 
-                                <ComboBox  PreviewTextInput="UnitCombo_PreviewTextInput" x:Name="UnitCombo" Margin="0,0,0,4" IsEnabled="True" DisplayMemberPath="Name" IsTextSearchEnabled="True" SelectedValuePath="RefKey"/>
+                                <ComboBox x:Name="UnitCombo" Margin="0,0,0,4" IsEnabled="True" DisplayMemberPath="Name" IsTextSearchEnabled="True" SelectedValuePath="RefKey"/>
                             <TextBlock Grid.Row="2" Grid.ColumnSpan="2" x:Name="UnitError"
                                        Foreground="Red" FontSize="10"/>
                             </StackPanel>

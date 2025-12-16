@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Interop;
 
 // алиасы
@@ -13,36 +14,19 @@ namespace RevitApi_3
 {
     public partial class ExportWindow : Window
     {
-        private readonly List<RevitItem> _sourceItems;
-        private readonly List<ExportRow> _exportRows;
+        private readonly ScheduleExportTable _table;
         private readonly string _contextInfo;
 
         private readonly List<ErpTreeNode> _treeRoots;
         private readonly List<RefNamedItem> _types;
         private readonly List<RefNamedItem> _units;
 
-        private string _lastKindRefKey;
-        private string _lastKindName;
-
         private ErpItem _outputProduct;
 
-        public string DocTitle => TitleBox.Text != null ? TitleBox.Text.Trim() : string.Empty;
-
-        private readonly string _authorFullName;
-        public string StartDateString
-        {
-            get
-            {
-                var d = StartDatePicker.SelectedDate ?? DateTime.Today;
-                return d.ToString("yyyy-MM-dd");
-            }
-        }
+        public string DocTitle => (TitleBox.Text ?? "").Trim();
 
         public ExportWindow(
-            //ScheduleExportTable table,
-            //ExportFormRefs refs,
-
-            List<ExportRow> previewRows,
+            ScheduleExportTable table,
             string contextInfo,
             string initialTitle,
             List<ErpTreeNode> treeRoots,
@@ -50,62 +34,42 @@ namespace RevitApi_3
             List<RefNamedItem> units)
         {
             InitializeComponent();
-            _authorFullName = WindowsUserHelper.GetFullName();
-            AuthorText.Text = _authorFullName;
-            StartDatePicker.SelectedDate = DateTime.Today;
 
+            _table = table ?? new ScheduleExportTable();
             _contextInfo = contextInfo ?? "";
+
             _treeRoots = treeRoots ?? new List<ErpTreeNode>();
             _types = types ?? new List<RefNamedItem>();
             _units = units ?? new List<RefNamedItem>();
 
-            // 1:1 как в Revit — никаких группировок/подсчётов тут
-            _exportRows = previewRows ?? new List<ExportRow>();
-            ExportGrid.ItemsSource = _exportRows;
-
             TitleBox.Text = initialTitle ?? string.Empty;
             ContextLabel.Text = _contextInfo;
+
+            this.Title = "Выгрузка ресурсной в ERP — " + _contextInfo;
+
+            ExportGrid.ItemsSource = _table.Rows;
+            BuildColumnsFromSchedule();
+
+            // просто чтобы алиасы реально были использованы (как ты просил)
+            WpfGrid grid = RootGrid;
+            WpfTextBox titleBox = TitleBox;
         }
 
-        private List<ExportRow> BuildExportRows(List<RevitItem> items)
+        private void BuildColumnsFromSchedule()
         {
-            var result = new List<ExportRow>();
+            ExportGrid.Columns.Clear();
 
-            var groups = items.GroupBy(i => new
+            for (int i = 0; i < _table.UiColumns.Count; i++)
             {
-                i.ScheduleName,
-                i.FamilyName,
-                i.TypeName,
-                i.DisplayName,
-                i.ErpCode,
-                i.Unit,
-                i.MassPerItem
-            });
+                var c = _table.UiColumns[i];
 
-            foreach (var g in groups)
-            {
-                int qty = g.Count();
-                double? massPerItem = g.Key.MassPerItem;
-                double? totalMass = null;
-                if (massPerItem.HasValue)
-                    totalMass = massPerItem.Value * qty;
-
-
-                result.Add(new ExportRow
+                ExportGrid.Columns.Add(new DataGridTextColumn
                 {
-                    ScheduleName = g.Key.ScheduleName,
-                    FamilyName = g.Key.FamilyName,
-                    TypeName = g.Key.TypeName,
-                    DisplayName = g.Key.DisplayName,
-                    ErpCode = g.Key.ErpCode,
-                    Unit = g.Key.Unit,
-                    QuantityText = qty.ToString(),
-                    MassPerItemText = massPerItem.ToString(),
-                    TotalMassText = totalMass.ToString()
+                    Header = c.Header,
+                    Binding = new Binding($"Values[{i}]"),
+                    IsReadOnly = true
                 });
             }
-
-            return result;
         }
 
         private void BtnPickOutput_Click(object sender, RoutedEventArgs e)
@@ -149,8 +113,8 @@ namespace RevitApi_3
                 return;
             }
 
-            var badRows = _exportRows
-                .Where(r => string.IsNullOrEmpty(r.ErpCode) || r.ErpCode == "-")
+            var badRows = _table.Rows
+                .Where(r => string.IsNullOrWhiteSpace(r.ErpCode) || r.ErpCode == "-")
                 .ToList();
 
             if (badRows.Count > 0)
@@ -165,18 +129,7 @@ namespace RevitApi_3
 
             try
             {
-                //string response = ErpClient.ExportResources(title, _contextInfo, _exportRows, _outputProduct);
-
-
-                string response = ErpClient.ExportResources(
-                    title,
-                    _contextInfo,
-                    StartDateString,
-                    _authorFullName,
-                    _exportRows,
-                    _outputProduct
-                );
-
+                string response = ErpClient.ExportResources(title, _contextInfo, _table, _outputProduct);
                 MessageBox.Show("Выгрузка выполнена.\nОтвет сервера:\n" + response, "ERP");
                 this.DialogResult = true;
                 this.Close();

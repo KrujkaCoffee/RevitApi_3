@@ -65,26 +65,28 @@ namespace RevitApi_3
         public string MassPerItemText { get; set; }
         public string TotalMassText { get; set; }
     }
-
-
     public class ScheduleExportRow
     {
-        public RefNamedItem StageItem { get; set; }   // выбирается пользователем
+        public List<string> Values { get; } = new List<string>();               // только UI-колонки (по порядку)
+        public Dictionary<string, string> Payload { get; } = new Dictionary<string, string>(); // все payload-колонки
 
-        public List<string> Values { get; set; } = new List<string>(); // по индексам колонок
-        public string ErpCode { get; set; }          // для валидации/подсветки
-        public string Unit { get; set; }             // полезно для последующих операций
+        public string ErpCode { get; set; } // для подсветки/валидации
+        public string Unit { get; set; }    // если надо дальше переиспользовать
     }
 
     public class ScheduleExportTable
     {
-        public List<string> Headers { get; set; } = new List<string>();
-        public List<ScheduleExportRow> Rows { get; set; } = new List<ScheduleExportRow>();
+        public string ScheduleName { get; set; }
 
-        public int ErpCodeCol { get; set; } = -1;
-        public int UnitCol { get; set; } = -1;
+        public List<ScheduleExportColumn> UiColumns { get; } = new List<ScheduleExportColumn>();
+        public List<ScheduleExportColumn> PayloadColumns { get; } = new List<ScheduleExportColumn>();
+        public List<ScheduleExportRow> Rows { get; } = new List<ScheduleExportRow>();
+
+        public int UiErpCodeIndex { get; set; } = -1;
+        public int UiUnitIndex { get; set; } = -1;
     }
 
+    // HTTP tables
 
     public class ValidateResouceFieldsMessages
     {
@@ -100,4 +102,17 @@ namespace RevitApi_3
         public List<string> global { get; set; }
     
     }
+
+
+
+    public class ScheduleExportColumn
+    {
+        public string Header { get; set; }            // как в Revit (UI)
+        public string Key { get; set; }               // ключ для payload (обычно = Header, но с дедупликацией)
+        public int ScheduleColumnIndex { get; set; }  // индекс колонки в SectionType.Body
+        public bool ShowInUi { get; set; }            // показываем в предпросмотре
+        public bool IncludeInPayload { get; set; }    // включаем в POST (даже если скрыта)
+    }
+
+
 }

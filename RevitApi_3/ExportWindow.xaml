@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Выгрузка ресурсной в ERP"
         Height="550" Width="950"
+        
         WindowStartupLocation="CenterOwner">
     <Grid x:Name="RootGrid" Margin="8">
         <Grid.RowDefinitions>
