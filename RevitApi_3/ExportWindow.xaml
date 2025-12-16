@@ -41,6 +41,14 @@
                             Margin="8,0,0,0"
                             Padding="6,2"
                             Click="BtnPickOutput_Click"/>
+                    <StackPanel Orientation="Horizontal" Margin="8,0,0,4">
+                        <TextBlock Text="Начало действия ресурсной:" VerticalAlignment="Center"/>
+                        <DatePicker x:Name="StartDatePicker" Width="130" Margin="6,0,16,0"/>
+
+                        <TextBlock Text="Автор:" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="AuthorText" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                    </StackPanel>
+
                 </StackPanel>
             </GroupBox>
         </StackPanel>

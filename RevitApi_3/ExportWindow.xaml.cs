@@ -28,6 +28,16 @@ namespace RevitApi_3
 
         public string DocTitle => TitleBox.Text != null ? TitleBox.Text.Trim() : string.Empty;
 
+        private readonly string _authorFullName;
+        public string StartDateString
+        {
+            get
+            {
+                var d = StartDatePicker.SelectedDate ?? DateTime.Today;
+                return d.ToString("yyyy-MM-dd");
+            }
+        }
+
         public ExportWindow(
             //ScheduleExportTable table,
             //ExportFormRefs refs,
@@ -40,6 +50,9 @@ namespace RevitApi_3
             List<RefNamedItem> units)
         {
             InitializeComponent();
+            _authorFullName = WindowsUserHelper.GetFullName();
+            AuthorText.Text = _authorFullName;
+            StartDatePicker.SelectedDate = DateTime.Today;
 
             _contextInfo = contextInfo ?? "";
             _treeRoots = treeRoots ?? new List<ErpTreeNode>();
@@ -152,7 +165,18 @@ namespace RevitApi_3
 
             try
             {
-                string response = ErpClient.ExportResources(title, _contextInfo, _exportRows, _outputProduct);
+                //string response = ErpClient.ExportResources(title, _contextInfo, _exportRows, _outputProduct);
+
+
+                string response = ErpClient.ExportResources(
+                    title,
+                    _contextInfo,
+                    StartDateString,
+                    _authorFullName,
+                    _exportRows,
+                    _outputProduct
+                );
+
                 MessageBox.Show("Выгрузка выполнена.\nОтвет сервера:\n" + response, "ERP");
                 this.DialogResult = true;
                 this.Close();

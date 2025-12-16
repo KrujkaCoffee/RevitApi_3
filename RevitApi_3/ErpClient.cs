@@ -206,8 +206,11 @@ namespace RevitApi_3
         public static string ExportResources(
             string title,
             string context,
+            string startDate,
+            string authorFullName,
             IEnumerable<ExportRow> rows,
             ErpItem outputProduct)
+
         {
             if (rows == null)
                 throw new ArgumentNullException(nameof(rows));
@@ -233,6 +236,8 @@ namespace RevitApi_3
                 action = "upload_resource_map",
                 title = title,
                 context = context,
+                creator = authorFullName,
+                start_date = startDate,
                 output_product = new
                 {
                     code = outputProduct.Code,
