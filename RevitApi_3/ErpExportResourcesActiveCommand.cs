@@ -31,40 +31,27 @@ namespace RevitApi_3
                     return Result.Failed;
                 }
 
-                // 1. Элементы из этой спецификации
-                //var items = RevitCollectors.CollectFromSchedule(doc, vs);
-                //if (items.Count == 0)
-                //{
-                //    TaskDialog.Show("ERP", "В активной спецификации нет элементов для выгрузки.");
-                //    return Result.Succeeded;
-                //}
-                //var exportRows = ScheduleToExportRows.Build(vs);
-                //var snap = ScheduleTableReader.Read(doc, vs, ErpParameters.ErpCodeParamName);
-                var elems = ScheduleSemanticExport.BuildExportRows(doc, vs);
-                var items = new List<RevitItem>();
-                foreach (var el in elems)
-                {
-
-                    items.Add(new RevitItem
-                    {
-                        ScheduleName = vs.Name,
-                        // дальше как у тебя: FamilyName/TypeName/DisplayName/Unit/MassPerItem/Stage...
-                        ErpCode = erp,
-                        ElementId = el.Id
-                    });
+                // NEW: семантическая выгрузка (FEC + sort/group из Definition)
+                var exportRows = ScheduleSemanticExport.BuildExportRows(doc, vs);
+                foreach (var vd in exportRows) {
+                    if (vd.ErpCode == "00-qwe") {
+                        Console.WriteLine(" ");
+                    }
+                
                 }
-                //if (snap.Count == 0)
-                //{
-                //    TaskDialog.Show("ERP",
-                //        "В активной спецификации нет строк данных для выгрузки (проверь фильтры/группировку).");
-                //    return Result.Succeeded;
-                //}
 
-                // 2. Загружаем дерево, типы и единицы для выбора выходного изделия
+                if (exportRows == null || exportRows.Count == 0)
+                {
+                    TaskDialog.Show("ERP",
+                        "В активной спецификации нет строк данных для выгрузки (проверь фильтры/группировку).");
+                    return Result.Succeeded;
+                }
+
+                // 2) Данные для выбора выходного изделия
                 List<ErpTreeNode> treeRoots;
                 List<RefNamedItem> types;
                 List<RefNamedItem> units;
-                var stages = ErpClient.LoadStages();
+
                 try
                 {
                     treeRoots = ErpClient.LoadErpTree();
@@ -85,8 +72,8 @@ namespace RevitApi_3
                 string initialTitle = string.IsNullOrEmpty(paramTitle) ? defaultTitle : paramTitle;
 
                 string ctx = "Спецификация: " + vs.Name;
-                //var previewRows = SchedulePreviewBuilder.Build(vs);
-                var win = new ExportWindow(items, ctx, initialTitle, treeRoots, types, units, stages);
+
+                var win = new ExportWindow(exportRows, ctx, initialTitle, treeRoots, types, units);
                 var helper = new WindowInteropHelper(win);
                 helper.Owner = commandData.Application.MainWindowHandle;
 

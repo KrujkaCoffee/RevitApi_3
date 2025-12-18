@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.UI;
 
 namespace RevitApi_3
 {
@@ -35,7 +36,13 @@ namespace RevitApi_3
             public Dictionary<ScheduleFieldId, string> SortKeyText = new Dictionary<ScheduleFieldId, string>();
             public string ErpCode;
             public string Unit;
+
+            // fallback, если в спецификации нет колонок Семейство/Тип/Наименование
+            public string BaseFamilyName;
+            public string BaseTypeName;
+            public string BaseDisplayName;
         }
+
 
         public static List<ExportRow> BuildExportRows(Document doc, ViewSchedule vs)
         {
@@ -44,50 +51,51 @@ namespace RevitApi_3
 
             ScheduleDefinition def = vs.Definition;
 
-            // 1) Какие поля вообще есть в расписании (в UI-порядке)
             List<FieldSpec> visibleFields = GetVisibleFields(def);
 
-            // 2) Чем сортируют/группируют
             List<SortSpec> sortSpecs = GetSortSpecs(def);
 
-            // 3) Берём элементы, которые реально попали в вид спецификации
-            // (включая фильтры/категории/прочую видимость)
-            IList<Element> elems = new FilteredElementCollector(doc, vs.Id)
-                .WhereElementIsNotElementType()
-                .ToElements();
+            var items = RevitCollectors.CollectFromSchedule(doc, vs); 
+            var records = new List<ElementRecord>(items.Count);
 
-            // 4) Строим записи по элементам
-            var records = new List<ElementRecord>(elems.Count);
-            foreach (var inst in elems)
+            foreach (var it in items)
             {
+                var inst = doc.GetElement(it.ElementId);
                 if (inst == null) continue;
-                Element type = doc.GetElement(inst.GetTypeId());
 
+                Element type = null;
+                if (it.TypeId != ElementId.InvalidElementId)
+                    type = doc.GetElement(it.TypeId);
+                if (it.ErpCode == "00-qwe") {
+                    Console.WriteLine("");
+                }
+                
                 var rec = new ElementRecord
                 {
                     Inst = inst,
                     Type = type,
-                    ErpCode = GetErpCode(type, inst),
-                    Unit = GetStringParam(inst, type, "ADSK_Единица измерения") // ваш “дефолт” по проекту
+
+                    // ERP/Unit: можно взять из items, но оставим твой приоритет "тип->экземпляр"
+                    ErpCode = string.IsNullOrWhiteSpace(it.ErpCode) ? GetErpCode(type, inst) : (it.ErpCode ?? "").Trim(),
+                    Unit = string.IsNullOrWhiteSpace(it.Unit) ? GetStringParam(inst, type, "ADSK_Единица измерения") : (it.Unit ?? "").Trim(),
+
+                    BaseFamilyName = it.FamilyName ?? "",
+                    BaseTypeName = it.TypeName ?? "",
+                    BaseDisplayName = it.DisplayName ?? ""
                 };
 
-                // значения полей (по факту — тексты параметров)
                 foreach (var fs in visibleFields)
-                {
-                    string text = GetFieldText(doc, inst, type, fs.Field);
-                    rec.FieldText[fs.FieldId] = text ?? "";
-                }
+                    rec.FieldText[fs.FieldId] = ScheduleSemanticExport.GetFieldText(doc, inst, type, fs.Field);
 
-                // ключи сортировки (тоже текст, чтобы ближе к UI-логике)
                 foreach (var ss in sortSpecs)
                 {
-                    ScheduleField f = def.GetField(ss.FieldId);
-                    string key = GetFieldText(doc, inst, type, f);
-                    rec.SortKeyText[ss.FieldId] = key ?? "";
+                    var f = def.GetField(ss.FieldId);
+                    rec.SortKeyText[ss.FieldId] = GetSortKeyText(doc, inst, type, f) ?? "";
                 }
 
                 records.Add(rec);
             }
+
 
             // 5) Сортировка как в спецификации (по цепочке sort/group fields)
             records.Sort(new RecordComparer(sortSpecs));
@@ -99,6 +107,70 @@ namespace RevitApi_3
 
             return BuildGroupedRows(vs, def, visibleFields, sortSpecs, records);
         }
+        private static string GetSortKeyText(Document doc, Element inst, Element type, ScheduleField field)
+        {
+            if (doc == null || inst == null || field == null) return "";
+
+            // 1) сначала штатно (как раньше)
+            string v = GetFieldText(doc, inst, type, field);
+            if (!string.IsNullOrWhiteSpace(v)) return v;
+
+            // 2) fallback по имени поля/заголовку: пробуем И inst, И type (в любом порядке)
+            string n = "";
+            try { n = field.GetName(); } catch { }
+
+            if (!string.IsNullOrWhiteSpace(n))
+            {
+                var p = inst.LookupParameter(n) ?? type?.LookupParameter(n);
+                v = ParamToText(doc, p);
+                if (!string.IsNullOrWhiteSpace(v)) return v;
+            }
+
+            try
+            {
+                string h = field.ColumnHeading;
+                if (!string.IsNullOrWhiteSpace(h) && !string.Equals(h, n, StringComparison.OrdinalIgnoreCase))
+                {
+                    var p = inst.LookupParameter(h) ?? type?.LookupParameter(h);
+                    v = ParamToText(doc, p);
+                    if (!string.IsNullOrWhiteSpace(v)) return v;
+                }
+            }
+            catch { }
+
+            return "";
+        }
+
+        private static string ParamToText(Document doc, Parameter p)
+        {
+            if (p == null) return "";
+
+            try
+            {
+                var s = p.AsValueString();
+                if (!string.IsNullOrWhiteSpace(s)) return s.Trim();
+            }
+            catch { }
+
+            try
+            {
+                switch (p.StorageType)
+                {
+                    case StorageType.String: return (p.AsString() ?? "").Trim();
+                    case StorageType.Integer: return p.AsInteger().ToString(CultureInfo.InvariantCulture);
+                    case StorageType.Double: return p.AsDouble().ToString(CultureInfo.InvariantCulture);
+                    case StorageType.ElementId:
+                        var id = p.AsElementId();
+                        if (id == ElementId.InvalidElementId) return "";
+                        var e = doc.GetElement(id);
+                        return e != null ? (e.Name ?? "").Trim() : id.IntegerValue.ToString(CultureInfo.InvariantCulture);
+                }
+            }
+            catch { }
+
+            return "";
+        }
+
 
         private static List<FieldSpec> GetVisibleFields(ScheduleDefinition def)
         {
@@ -113,7 +185,7 @@ namespace RevitApi_3
 
                 // скрытые поля в UI не экспортируем как колонки
                 // (но их можно будет отдельно учесть позже, если нужно для payload)
-                if (f.IsHidden) continue; // :contentReference[oaicite:4]{index=4}
+                //if (f.IsHidden) continue; // :contentReference[oaicite:4]{index=4}
 
                 string header = SafeHeader(f);
                 list.Add(new FieldSpec { FieldId = fid, Field = f, Header = header });
@@ -166,6 +238,9 @@ namespace RevitApi_3
 
             foreach (var r in records)
             {
+                if (r.ErpCode == "00-qwe") {
+                    Console.WriteLine(" ");
+                }
                 string key = MakeGroupKey(sortSpecs, r);
                 if (current == null || !string.Equals(lastKey, key, StringComparison.Ordinal))
                 {
@@ -186,17 +261,15 @@ namespace RevitApi_3
             {
                 var agg = new ElementRecord();
 
-                // ERP код на группу: если разные → "-"
-                agg.ErpCode = MergeErp(g.Select(x => x.ErpCode));
-                agg.Unit = MergeUnit(g.Select(x => x.Unit));
+                agg.ErpCode = Merge(g.Select(x => x.ErpCode), "-");
+                agg.Unit = Merge(g.Select(x => x.Unit));
+                agg.BaseDisplayName = Merge(g.Select(x => x.BaseDisplayName));
 
                 foreach (var fs in fields)
                 {
                     var f = fs.Field;
 
-                    // Важно: формулы/combined сейчас НЕ считаем (без парсинга ячеек)
-                    // Если окажется, что это нужно по ТЗ — добавим отдельным шагом.
-                    if (f.IsCalculatedField || f.IsCombinedParameterField) // :contentReference[oaicite:10]{index=10}
+                    if (f.IsCalculatedField || f.IsCombinedParameterField) // || f.IsCombinedParameterField
                     {
                         agg.FieldText[fs.FieldId] = "";
                         continue;
@@ -341,12 +414,10 @@ namespace RevitApi_3
                 string type = GetByIndex(fields, r, cTyp);
                 string name = GetByIndex(fields, r, cName);
 
-                // минимальный “антишум”: если совсем пусто — пропускаем
-                if (string.IsNullOrWhiteSpace(type) && string.IsNullOrWhiteSpace(name))
-                    continue;
+                if (string.IsNullOrWhiteSpace(family)) family = r.BaseFamilyName;
+                if (string.IsNullOrWhiteSpace(type)) type = r.BaseTypeName;
+                if (string.IsNullOrWhiteSpace(name)) name = r.BaseDisplayName;
 
-                // ERP и Unit: приоритет — колонки расписания (если они есть),
-                // иначе — из параметров по дефолту
                 string erp = GetByIndex(fields, r, cErp);
                 if (string.IsNullOrWhiteSpace(erp))
                     erp = r.ErpCode ?? "";
@@ -398,7 +469,7 @@ namespace RevitApi_3
 
         // ======== Field reading ========
 
-        private static string GetFieldText(Document doc, Element inst, Element type, ScheduleField field)
+        public static string GetFieldText(Document doc, Element inst, Element type, ScheduleField field)
         {
             if (field == null) return "";
 
@@ -411,6 +482,24 @@ namespace RevitApi_3
                 return "";
 
             Parameter p = GetParameterByElementId(inst, type, field.FieldType, pid, doc);
+            if (p == null)
+            {
+                string n = "";
+                try { n = field.GetName(); } catch { }
+                if (!string.IsNullOrWhiteSpace(n))
+                    p = inst.LookupParameter(n);
+
+                if (p == null)
+                {
+                    try
+                    {
+                        var h = field.ColumnHeading;
+                        if (!string.IsNullOrWhiteSpace(h) && !string.Equals(h, n, StringComparison.OrdinalIgnoreCase))
+                            p = inst.LookupParameter(h);
+                    }
+                    catch { }
+                }
+            }
             if (p == null) return "";
 
             // сначала “как в UI”
@@ -516,7 +605,7 @@ namespace RevitApi_3
             return "-";
         }
 
-        private static string MergeUnit(IEnumerable<string> units)
+        private static string Merge(IEnumerable<string> units, string defaultValue = "")
         {
             var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var c in units)
@@ -524,30 +613,35 @@ namespace RevitApi_3
                 var s = (c ?? "").Trim();
                 if (!string.IsNullOrEmpty(s)) set.Add(s);
             }
-            if (set.Count == 0) return "";
+            if (set.Count == 0) return defaultValue;
             if (set.Count == 1) return set.First();
-            return "";
+            return defaultValue;
         }
 
         private static string SafeHeader(ScheduleField f)
         {
-            // В разных версиях API удобнее всего брать ColumnHeading;
-            // если пусто — fallback на GetName().
+            if (f == null) return "";
+
+            // Revit 2022: ColumnHeading — свойство, не метод
             try
             {
-                string h = f.GetColumnHeading();
-                if (!string.IsNullOrWhiteSpace(h)) return h.Trim();
+                string h = f.ColumnHeading;
+                if (!string.IsNullOrWhiteSpace(h))
+                    return h.Trim();
             }
             catch { }
 
+            // fallback: имя поля
             try
             {
                 string n = f.GetName();
-                return (n ?? "").Trim();
+                if (!string.IsNullOrWhiteSpace(n))
+                    return n.Trim();
             }
             catch { }
 
             return "";
         }
+
     }
 }

@@ -19,6 +19,7 @@ namespace RevitApi_3
         public double? MassPerItem { get; set; }
     }
 
+
     public class ErpItem
     {
         public string Code { get; set; }
