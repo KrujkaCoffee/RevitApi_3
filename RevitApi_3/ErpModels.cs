@@ -53,18 +53,12 @@ namespace RevitApi_3
     public class ExportRow
     {
         public string Stage { get; set; } // Этап
-        public string ScheduleName { get; set; }
         public string FamilyName { get; set; }
         public string TypeName { get; set; }
         public string DisplayName { get; set; }
         public string ErpCode { get; set; }
         public string Unit { get; set; }
-
-
-
         public string QuantityText { get; set; }
-        public string MassPerItemText { get; set; }
-        public string TotalMassText { get; set; }
     }
     public class ScheduleExportRow
     {

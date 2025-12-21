@@ -16,25 +16,25 @@ namespace RevitApi_3
 
             var b1 = new PushButtonData(
                 "ErpMappingAll",
-                "🔑 Коды\n(все)",
+                "🔑 Сопоставление кодов 1C\n(проекта)",
                 path,
                 "RevitApi_3.ErpMappingAllCommand");
 
             var b2 = new PushButtonData(
                 "ErpMappingActive",
-                "🔑 Коды\n(активная)",
+                "🔑  Сопоставление кодов 1C\n(активной спецификации)",
                 path,
                 "RevitApi_3.ErpMappingActiveCommand");
 
             var b3 = new PushButtonData(
                 "ErpExportResourcesActive",
-                "📤 Выгрузка\n(активная)",
+                "📤 Выгрузка спецификации\n(активной спецификации)",
                 path,
                 "RevitApi_3.ErpExportResourcesActiveCommand");
 
-            panel.AddItem(b1);
-            panel.AddItem(b2);
-            panel.AddItem(b3);
+            panel.AddStackedItems(b1, b2, b3);
+            //panel.AddItem(b2);
+            //panel.AddItem(b3);
 
             return Result.Succeeded;
         }

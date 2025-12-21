@@ -54,7 +54,7 @@ namespace RevitApi_3
                 }
                 catch
                 {
-                    TaskDialog.Show("ERP", "Сервис недоступен. Дерево номенклатуры получить не удалось.");
+                    TaskDialog.Show("ERP", "Сервис недоступен. Дерево номенклатуры получить не удалsось.");
                     return Result.Succeeded;
                 }
                 string ctx = "Спецификация: " + vs.Name;

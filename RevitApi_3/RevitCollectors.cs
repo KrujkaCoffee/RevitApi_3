@@ -126,7 +126,7 @@ namespace RevitApi_3
             return result;
         }
 
-        public static string GetDisplayName(Element inst, Element type)
+        public static string GetDisplayName(Element inst, Element type) 
         {
             Parameter p = inst.LookupParameter("ADSK_Наименование");
             if (p != null && p.StorageType == StorageType.String && !string.IsNullOrEmpty(p.AsString()))

@@ -238,9 +238,6 @@ namespace RevitApi_3
 
             foreach (var r in records)
             {
-                if (r.ErpCode == "00-qwe") {
-                    Console.WriteLine(" ");
-                }
                 string key = MakeGroupKey(sortSpecs, r);
                 if (current == null || !string.Equals(lastKey, key, StringComparison.Ordinal))
                 {
@@ -264,6 +261,9 @@ namespace RevitApi_3
                 agg.ErpCode = Merge(g.Select(x => x.ErpCode), "-");
                 agg.Unit = Merge(g.Select(x => x.Unit));
                 agg.BaseDisplayName = Merge(g.Select(x => x.BaseDisplayName));
+                agg.BaseFamilyName = Merge(g.Select(x => x.BaseFamilyName));
+                agg.BaseTypeName = Merge(g.Select(x => x.BaseTypeName));
+                if (string.IsNullOrEmpty(agg.BaseTypeName) && string.IsNullOrEmpty(agg.BaseDisplayName)) continue;
 
                 foreach (var fs in fields)
                 {
@@ -299,11 +299,19 @@ namespace RevitApi_3
 
                 foreach (var r in group)
                 {
-                    double? val = TryGetNumericFieldValue(r, f);
-                    if (val.HasValue)
+                    if (r.Unit.ToLower().StartsWith("шт"))
                     {
-                        sum += val.Value;
+                        sum += 1;
                         any = true;
+
+                    } else
+                    {
+                        double? val = TryGetNumericFieldValue(r, f);
+                        if (val.HasValue)
+                        {
+                            sum += val.Value;
+                            any = true;
+                        }
                     }
                 }
 
@@ -429,15 +437,12 @@ namespace RevitApi_3
                 outRows.Add(new ExportRow
                 {
                     Stage = "",
-                    ScheduleName = vs.Name,
                     FamilyName = family,
                     TypeName = type,
                     DisplayName = name,
                     ErpCode = erp,
                     Unit = unit,
                     QuantityText = GetByIndex(fields, r, cQty),
-                    MassPerItemText = GetByIndex(fields, r, cM1),
-                    TotalMassText = GetByIndex(fields, r, cMT)
                 });
             }
 

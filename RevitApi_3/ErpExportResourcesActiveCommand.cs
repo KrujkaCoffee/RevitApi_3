@@ -33,12 +33,6 @@ namespace RevitApi_3
 
                 // NEW: семантическая выгрузка (FEC + sort/group из Definition)
                 var exportRows = ScheduleSemanticExport.BuildExportRows(doc, vs);
-                foreach (var vd in exportRows) {
-                    if (vd.ErpCode == "00-qwe") {
-                        Console.WriteLine(" ");
-                    }
-                
-                }
 
                 if (exportRows == null || exportRows.Count == 0)
                 {

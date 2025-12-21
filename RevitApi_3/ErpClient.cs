@@ -12,15 +12,17 @@ namespace RevitApi_3
     internal static class ErpClient
     {
         // TODO: подставь реальные адреса/методы из 1С
-        private const string TreeUrl = "http://pow18-08:8000/types";
-        private const string CodesUrl = "http://pow18-08:8000/nomens";
-        private const string TypesUrl = "http://pow18-08:8000/nomen/kind/form/";
-        private const string UnitsUrl = "http://pow18-08:8000/nomen/units/form/";
-        private const string CreateUrl = "http://pow18-08:8000/nomen/create/";
-        private const string ExportResourcesUrl = "http://pow18-08:8000/accept";
-        private const string ValidateUrl = "http://pow18-08:8000/resource/validate/";
-        private const string ValidateNomenclatureUrl = "http://pow18-08:8000/nomen/validate/";
-        private const string StagesUrl = "http://pow18-08:8000/nomen/stages/form/";
+        private const string BaseUrl = "http://pow18-08:8000";
+
+        private static string TreeUrl = $"{BaseUrl}/api/v1/revit/types/";
+        private static string CodesUrl = $"{BaseUrl}/api/v1/revit/nomens";
+        private static string TypesUrl = $"{BaseUrl}/api/v1/revit/nomen/kind/form/";
+        private static string UnitsUrl = $"{BaseUrl}/api/v1/revit/nomen/units/form/";
+        private static string CreateUrl = $"{BaseUrl}/api/v1/revit/nomen/create/";
+        private static string ExportResourcesUrl = $"{BaseUrl}/api/v1/revit/accept";
+        private static string ValidateUrl = $"{BaseUrl}/api/v1/revit/resource/validate/";
+        private static string ValidateNomenclatureUrl = $"{BaseUrl}/api/v1/revit/nomen/validate/";
+        private static string StagesUrl = $"{BaseUrl}/api/v1/revit/nomen/stages/form/";
 
         // DTO для дерева
         private class ErpTreeItemDto
@@ -227,10 +229,10 @@ namespace RevitApi_3
             string title,
             string context,
             string startDate,
+            string endDate,
             string authorFullName,
             IEnumerable<ExportRow> rows,
             ErpItem outputProduct)
-
         {
             if (rows == null)
                 throw new ArgumentNullException(nameof(rows));
@@ -239,16 +241,13 @@ namespace RevitApi_3
 
             var rowList = rows.Select(r => new
             {
-                Stage = r.Stage,
-                r.ScheduleName,
+                Stage = r.Stage, // RefKey этапа (из ComboBox)
                 r.FamilyName,
                 r.TypeName,
                 r.DisplayName,
                 r.ErpCode,
                 r.Unit,
                 Quantity = r.QuantityText,
-                MassPerItem = r.MassPerItemText,
-                TotalMass = r.TotalMassText
             }).ToList();
 
             var payload = new
@@ -258,6 +257,7 @@ namespace RevitApi_3
                 context = context,
                 creator = authorFullName,
                 start_date = startDate,
+                end_date = endDate,
                 output_product = new
                 {
                     code = outputProduct.Code,
@@ -271,6 +271,126 @@ namespace RevitApi_3
             string response = PostJson(ExportResourcesUrl, json, out _);
             return response;
         }
+
+        internal class ResourceTableError
+        {
+            public int Row { get; set; }
+            public string Msg { get; set; }
+        }
+
+        internal class ResourceValidationResult
+        {
+            public Dictionary<string, string> FieldErrors { get; set; } = new Dictionary<string, string>();
+            public List<ResourceTableError> TableErrors { get; set; } = new List<ResourceTableError>();
+            public bool HasErrors =>
+                (FieldErrors != null && FieldErrors.Count > 0) ||
+                (TableErrors != null && TableErrors.Count > 0);
+        }
+
+        /// <summary>
+        /// Проверка ресурсной (тот же payload что экспорт), ожидаем:
+        /// { field_errors: {..}, table_errors: [{row:2,msg:".."}, ...] }
+        /// </summary>
+        public static ResourceValidationResult ValidateResources(
+            string title,
+            string context,
+            string startDate,
+            string endDate,
+            string authorFullName,
+            IEnumerable<ExportRow> rows,
+            ErpItem outputProduct)
+        {
+            if (rows == null)
+                throw new ArgumentNullException(nameof(rows));
+            if (outputProduct == null)
+                throw new ArgumentNullException(nameof(outputProduct));
+
+            var rowList = rows.Select(r => new
+            {
+                Stage = r.Stage,
+                r.FamilyName,
+                r.TypeName,
+                r.DisplayName,
+                r.ErpCode,
+                r.Unit,
+                Quantity = r.QuantityText,
+            }).ToList();
+
+            var payload = new
+            {
+                action = "upload_resource_map", // как при экспорте (по твоему требованию)
+                title = title,
+                context = context,
+                creator = authorFullName,
+                start_date = startDate,
+                end_date = endDate,
+                output_product = new
+                {
+                    code = outputProduct.Code,
+                    name = outputProduct.Name,
+                    unit = outputProduct.Unit
+                },
+                rows = rowList
+            };
+
+            string json = JsonConvert.SerializeObject(payload);
+
+            HttpStatusCode status;
+            string body = PostJson(ValidateUrl, json, out status);
+
+            var result = new ResourceValidationResult();
+
+            // если сервер вернул JSON с ошибками — распарсим
+            try
+            {
+                var jo = JObject.Parse(body);
+
+                var fe = jo["field_errors"] as JObject;
+                if (fe != null)
+                {
+                    foreach (var p in fe.Properties())
+                        result.FieldErrors[p.Name] = (p.Value ?? "").ToString();
+                }
+
+                var te = jo["table_errors"] as JArray;
+                if (te != null)
+                {
+                    foreach (var x in te)
+                    {
+                        int row = 0;
+                        string msg = "";
+
+                        var o = x as JObject;
+                        if (o != null)
+                        {
+                            row = o["row"] != null ? (int)o["row"] : 0;
+                            msg = (o["msg"] ?? "").ToString();
+                        }
+
+                        if (row > 0 && !string.IsNullOrWhiteSpace(msg))
+                            result.TableErrors.Add(new ResourceTableError { Row = row, Msg = msg });
+                    }
+                }
+            }
+            catch
+            {
+                // если 200 и тело не JSON — считаем что ок
+                if (status == HttpStatusCode.OK)
+                    return result;
+
+                throw new Exception("ValidateResources: сервер вернул не-JSON: " + body);
+            }
+
+            if (status == HttpStatusCode.OK)
+                return result;
+
+            // обычно ошибки — 400, но не привязываемся жёстко
+            if (status == HttpStatusCode.BadRequest)
+                return result;
+
+            throw new Exception("ValidateResources: неожиданный статус " + (int)status + ", тело: " + body);
+        }
+
 
         public static Dictionary<string, string> ValidateNomenclature(
             string kindRef, string typeRef, string unitRef,
@@ -297,7 +417,7 @@ namespace RevitApi_3
             string json = JsonConvert.SerializeObject(payload);
 
             HttpStatusCode status;
-            string body = PostJson(ValidateUrl, json, out status);
+            string body = PostJson(ValidateNomenclatureUrl, json, out status);
 
             if (status == HttpStatusCode.OK)
                 return new Dictionary<string, string>(); // всё ок
