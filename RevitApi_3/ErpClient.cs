@@ -12,6 +12,7 @@ namespace RevitApi_3
     internal static class ErpClient
     {
         // TODO: подставь реальные адреса/методы из 1С
+        //private const string BaseUrl = "http://srv-mes:20011";
         private const string BaseUrl = "http://pow18-08:8000";
 
         private static string TreeUrl = $"{BaseUrl}/api/v1/revit/types/";
@@ -38,6 +39,77 @@ namespace RevitApi_3
             public string Name { get; set; }
             public string Unit { get; set; }
         }
+
+        private static string LinkCheckUrl = $"{BaseUrl}/api/v1/revit/resource/link_exists/"; 
+
+        /// <summary>
+        /// Проверить, существует ли сущность по link.
+        /// Возвращает:
+        ///  - true  : сервер явно подтвердил существование
+        ///  - false : сервер явно сказал, что ссылка недействительна
+        ///  - null  : не булево/ошибка/сбой — ничего не удаляем
+        /// </summary>
+        public static bool? CheckResourceLinkAlive(string link)
+        {
+            if (string.IsNullOrWhiteSpace(link))
+                return null;
+
+            var payload = new
+            {
+                action = "check_resource_link",
+                link = link
+            };
+
+            string json = JsonConvert.SerializeObject(payload);
+
+            try
+            {
+                HttpStatusCode status;
+                string body = PostJson(LinkCheckUrl, json, out status);
+
+                if (status != HttpStatusCode.OK)
+                    return null;
+
+                return TryParseBoolFromBody(body);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static bool? TryParseBoolFromBody(string body)
+        {
+            if (string.IsNullOrWhiteSpace(body)) return null;
+
+            string t = body.Trim();
+
+            if (bool.TryParse(t, out bool b))
+                return b;
+
+            try
+            {
+                var tok = JToken.Parse(t);
+
+                if (tok.Type == JTokenType.Boolean)
+                    return tok.Value<bool>();
+
+                if (tok is JObject o)
+                {
+                    // поддержим несколько возможных ключей
+                    foreach (var key in new[] { "exists", "ok", "valid", "result" })
+                    {
+                        var v = o[key];
+                        if (v != null && v.Type == JTokenType.Boolean)
+                            return v.Value<bool>();
+                    }
+                }
+            }
+            catch { }
+
+            return null;
+        }
+
 
         private class RefNamedItemDto
         {

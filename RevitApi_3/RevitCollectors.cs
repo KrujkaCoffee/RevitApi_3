@@ -27,7 +27,7 @@ namespace RevitApi_3
 
         public static List<RevitItem> CollectFromAllSpecs(Document doc)
         {
-            var specs = GetSpecsByPrefix(doc, "Спецификация_");
+            var specs = GetSpecsByPrefix(doc, "Спецификация");
             return CollectItemsFromSchedules(doc, specs);
         }
 

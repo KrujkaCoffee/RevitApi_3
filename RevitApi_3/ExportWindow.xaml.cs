@@ -34,13 +34,21 @@ namespace RevitApi_3
 
         public string DocTitle => (TitleBox.Text ?? "").Trim();
 
+        private readonly Action<string, string> _saveScheduleLink;
+        private readonly string _existingInfoText;
+
+
         public ExportWindow(
             List<ExportRow> exportRows,
             string contextInfo,
             string initialTitle,
             List<ErpTreeNode> treeRoots,
             List<RefNamedItem> types,
-            List<RefNamedItem> units)
+            List<RefNamedItem> units,
+            string existing1cLink,
+            string existingInfoText,
+            Action<string, string> saveScheduleLink)
+
         {
             InitializeComponent();
 
@@ -48,6 +56,22 @@ namespace RevitApi_3
             _treeRoots = treeRoots ?? new List<ErpTreeNode>();
             _types = types ?? new List<RefNamedItem>();
             _units = units ?? new List<RefNamedItem>();
+
+            _existingInfoText = existingInfoText ?? "";
+            _saveScheduleLink = saveScheduleLink;
+
+            // если спецификация уже выгружалась — сразу показываем ссылку
+            if (!string.IsNullOrWhiteSpace(existing1cLink))
+            {
+                _last1cLink = existing1cLink;
+
+                SuccessText.Text = string.IsNullOrWhiteSpace(_existingInfoText)
+                    ? "Спецификация уже была создана ранее ✅"
+                    : _existingInfoText;
+
+                Open1cLinkBlock.Visibility = Visibility.Visible;
+            }
+
 
             _exportRows = exportRows ?? new List<ExportRow>();
 
@@ -178,6 +202,11 @@ namespace RevitApi_3
                     _outputProduct);
 
                 _last1cLink = TryExtract1cLink(response);
+                if (!string.IsNullOrWhiteSpace(_last1cLink))
+                {
+                    _saveScheduleLink?.Invoke(_last1cLink, DocTitle);
+                }
+
                 SuccessText.Text = "Спецификация успешно создана ✅";
 
                 Open1cLinkBlock.Visibility = string.IsNullOrWhiteSpace(_last1cLink)

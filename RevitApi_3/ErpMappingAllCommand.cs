@@ -28,7 +28,7 @@ namespace RevitApi_3
                 var rawItems = RevitCollectors.CollectFromAllSpecs(doc);
                 if (rawItems.Count == 0)
                 {
-                    TaskDialog.Show("ERP", "Не найдено элементов в спецификациях с префиксом 'Спецификация_'.");
+                    TaskDialog.Show("ERP", "Не найдено элементов в спецификациях с префиксом 'Спецификация'.");
                     return Result.Succeeded;
                 }
 
