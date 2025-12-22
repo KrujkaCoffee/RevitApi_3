@@ -1,10 +1,14 @@
-﻿using System;
+﻿using Newtonsoft.Json.Linq;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 
@@ -12,6 +16,7 @@ namespace RevitApi_3
 {
     public partial class ExportWindow : Window
     {
+        private string _last1cLink;
         private readonly string _contextInfo;
         private readonly List<ExportRow> _exportRows;
 
@@ -153,11 +158,9 @@ namespace RevitApi_3
 
         private void BtnExport_Click(object sender, RoutedEventArgs e)
         {
-            // 1) сначала проверка (как ты просил)
             if (!RunValidate(showOkMessage: false))
                 return;
 
-            // 2) затем экспорт
             string title = DocTitle;
             string author = (AuthorBox.Text ?? "").Trim();
             string startDate = FormatDate(StartDatePicker.SelectedDate);
@@ -174,9 +177,15 @@ namespace RevitApi_3
                     _exportRows,
                     _outputProduct);
 
+                _last1cLink = TryExtract1cLink(response);
+                SuccessText.Text = "Спецификация успешно создана ✅";
+
+                Open1cLinkBlock.Visibility = string.IsNullOrWhiteSpace(_last1cLink)
+                    ? Visibility.Collapsed
+                    : Visibility.Visible;
                 MessageBox.Show("Выгрузка выполнена.\nОтвет сервера:\n" + response, "ERP");
-                this.DialogResult = true;
-                this.Close();
+                //this.DialogResult = true;
+                //this.Close();
             }
             catch (Exception ex)
             {
@@ -292,7 +301,6 @@ namespace RevitApi_3
             var sel = ErrorsGrid.SelectedItem as TableErrorVm;
             if (sel == null) return;
 
-            // row в ответе обычно 1-based
             int idx = sel.Row - 1;
             if (idx < 0 || idx >= _exportRows.Count) return;
 
@@ -362,6 +370,146 @@ namespace RevitApi_3
             this.DialogResult = false;
             this.Close();
         }
+
+        private void Open1cLinkBlock_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(_last1cLink)) return;
+            OpenIn1c(_last1cLink);
+        }
+
+        private static string TryExtract1cLink(string response)
+        {
+            if (string.IsNullOrWhiteSpace(response)) return null;
+
+            try
+            {
+                var token = JToken.Parse(response);
+                var found = Find1cLinkInJson(token);
+                if (!string.IsNullOrWhiteSpace(found))
+                    return Uri.UnescapeDataString(found);
+            }
+            catch { /* ignore */ }
+
+            int idx = response.IndexOf("e1c://", StringComparison.OrdinalIgnoreCase);
+            if (idx >= 0)
+            {
+                int end = idx;
+                while (end < response.Length)
+                {
+                    char ch = response[end];
+                    if (char.IsWhiteSpace(ch) || ch == '"' || ch == '\'' || ch == '\r' || ch == '\n')
+                        break;
+                    end++;
+                }
+                return Uri.UnescapeDataString(response.Substring(idx, end - idx));
+            }
+
+            return null;
+        }
+
+        private static string Find1cLinkInJson(JToken token)
+        {
+            if (token == null) return null;
+
+            if (token.Type == JTokenType.String)
+            {
+                string s = token.Value<string>();
+                if (!string.IsNullOrWhiteSpace(s) && s.IndexOf("e1c://", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return s;
+            }
+
+            if (token is JObject obj)
+            {
+                foreach (var prop in obj.Properties())
+                {
+                    string name = (prop.Name ?? "").ToLowerInvariant();
+
+                    if (prop.Value?.Type == JTokenType.String)
+                    {
+                        string val = prop.Value.Value<string>();
+                        if (!string.IsNullOrWhiteSpace(val) &&
+                            (name.Contains("Ссылка") || name.Contains("url") || name.Contains("href") || name.Contains("e1c")) &&
+                            val.IndexOf("e1c://", StringComparison.OrdinalIgnoreCase) >= 0)
+                            return val;
+                    }
+
+                    var nested = Find1cLinkInJson(prop.Value);
+                    if (!string.IsNullOrWhiteSpace(nested))
+                        return nested;
+                }
+            }
+
+            if (token is JArray arr)
+                foreach (var it in arr)
+                {
+                    var nested = Find1cLinkInJson(it);
+                    if (!string.IsNullOrWhiteSpace(nested))
+                        return nested;
+                }
+
+            return null;
+        }
+
+        private static void OpenIn1c(string link)
+        {
+            if (string.IsNullOrWhiteSpace(link)) return;
+
+            link = Uri.UnescapeDataString(link.Trim());
+
+            string exe = Resolve1cStartExe();
+            string args = "/url \"" + link + "\"";
+            string cmdLine = (string.IsNullOrWhiteSpace(exe) ? "1cestart.exe" : exe) + " " + args;
+
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(exe) && File.Exists(exe))
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = exe,
+                        Arguments = args,
+                        UseShellExecute = false
+                    });
+                    return;
+                }
+
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = link,
+                    UseShellExecute = true
+                });
+            }
+            catch
+            {
+                try
+                {
+                    Clipboard.SetText(cmdLine);
+                    MessageBox.Show("Не удалось открыть ссылку автоматически.\nКоманда скопирована в буфер:\n" + cmdLine,
+                        "ERP", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                catch
+                {
+                    MessageBox.Show("Не удалось открыть ссылку.\nКоманда:\n" + cmdLine,
+                        "ERP", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+            }
+        }
+
+        private static string Resolve1cStartExe()
+        {
+            try
+            {
+                string p1 = Environment.ExpandEnvironmentVariables(@"%ProgramFiles%\\1cv8\\common\\1cestart.exe");
+                if (File.Exists(p1)) return p1;
+
+                string p2 = Environment.ExpandEnvironmentVariables(@"%ProgramFiles(x86)%\\1cv8\\common\\1cestart.exe");
+                if (File.Exists(p2)) return p2;
+            }
+            catch { }
+
+            return null;
+        }
+
 
         private class TableErrorVm
         {

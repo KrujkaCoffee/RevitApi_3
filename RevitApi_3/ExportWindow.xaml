@@ -52,7 +52,18 @@
                             Padding="6,2"
                             Click="BtnPickOutput_Click"/>
                 </StackPanel>
+                
             </GroupBox>
+            <TextBlock x:Name="SuccessText" VerticalAlignment="Center"/>
+            <TextBlock x:Name="Open1cLinkBlock"
+           Margin="8,0,0,0"
+           VerticalAlignment="Center"
+           Foreground="Blue"
+           TextDecorations="Underline"
+           Cursor="Hand"
+           Visibility="Collapsed"
+           MouseLeftButtonUp="Open1cLinkBlock_MouseLeftButtonUp">Открыть в 1С</TextBlock>
+
         </StackPanel>
 
         <!-- Таблица -->
