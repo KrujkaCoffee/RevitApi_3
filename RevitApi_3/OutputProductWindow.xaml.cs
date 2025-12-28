@@ -221,29 +221,43 @@ namespace RevitApi_3
             string name = (NameBox.Text ?? "").Trim();
             string article = (ArticleBox.Text ?? "").Trim();
 
-            try
-            {
-                var created = ErpClient.CreateNomenclature(
-                    _selectedKindRefKey,
-                    t != null ? t.RefKey : null,
-                    u2 != null ? u2.RefKey : null,
-                    name,
-                    article);
+            var errors = ErpClient.ValidateNomenclature(
+                _selectedKindRefKey,
+                t != null ? t.RefKey : null,
+                u2 != null ? u2.RefKey : null,
+                name,
+                article);
 
-                SelectedProduct = created;
-                SelectedProductLabel.Text = created.Name + " (" + created.Code + ")";
-                DialogResult = true;
-                Close();
-            }
-            catch (ErpValidationException vex)
+            if (errors == null || errors.Count == 0)
             {
-                ApplyValidationErrors(vex.Errors);
+                try
+                {
+                    var created = ErpClient.CreateNomenclature(
+                        _selectedKindRefKey,
+                        t != null ? t.RefKey : null,
+                        u2 != null ? u2.RefKey : null,
+                        name,
+                        article);
+
+                    SelectedProduct = created;
+                    SelectedProductLabel.Text = created.Name + " (" + created.Code + ")";
+                    DialogResult = true;
+                    Close();
+                }
+                catch (ErpValidationException vex)
+                {
+                    ApplyValidationErrors(vex.Errors);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Ошибка при создании номенклатуры: " + ex.Message,
+                        "ERP", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
             }
-            catch (Exception ex)
-            {
-                MessageBox.Show("Ошибка при создании номенклатуры: " + ex.Message,
-                    "ERP", MessageBoxButton.OK, MessageBoxImage.Error);
+            else {
+                ApplySimpleValidationErrors(errors);
             }
+
         }
 
         private void BtnValidate_Click(object sender, RoutedEventArgs e)
@@ -335,10 +349,10 @@ namespace RevitApi_3
                     UnitError.Text = msg;
                     UnitCombo.Background = Brushes.MistyRose;
                 }
-                else if (key.Contains("kind") || key.Contains("видноменклатуры"))
+                else if (key.Contains("kind_ref") || key.Contains("видноменклатуры"))
                 {
-                    NameError.Text = (NameError.Text + " " + msg).Trim();
-                    NameBox.Background = Brushes.MistyRose;
+                    KindError.Text = (NameError.Text + " " + msg).Trim();
+                    KindError.Background = Brushes.MistyRose;
                 }
                 else
                 {

@@ -12,18 +12,20 @@ namespace RevitApi_3
     internal static class ErpClient
     {
         // TODO: подставь реальные адреса/методы из 1С
-        //private const string BaseUrl = "http://srv-mes:20011";
-        private const string BaseUrl = "http://pow18-08:8000";
+        private const string BaseUrl = "http://srv-mes:20011";
+        //private const string BaseUrl = "http://pow18-08:8000";
 
         private static string TreeUrl = $"{BaseUrl}/api/v1/revit/types/";
         private static string CodesUrl = $"{BaseUrl}/api/v1/revit/nomens";
         private static string TypesUrl = $"{BaseUrl}/api/v1/revit/nomen/kind/form/";
         private static string UnitsUrl = $"{BaseUrl}/api/v1/revit/nomen/units/form/";
         private static string CreateUrl = $"{BaseUrl}/api/v1/revit/nomen/create/";
-        private static string ExportResourcesUrl = $"{BaseUrl}/api/v1/revit/accept";
+        private static string ExportResourcesUrl = $"{BaseUrl}/api/v1/revit/resource/create/";
         private static string ValidateUrl = $"{BaseUrl}/api/v1/revit/resource/validate/";
         private static string ValidateNomenclatureUrl = $"{BaseUrl}/api/v1/revit/nomen/validate/";
         private static string StagesUrl = $"{BaseUrl}/api/v1/revit/nomen/stages/form/";
+        private static string LinkCheckUrl = $"{BaseUrl}/api/v1/revit/resource/link_exists/";
+
 
         // DTO для дерева
         private class ErpTreeItemDto
@@ -40,7 +42,6 @@ namespace RevitApi_3
             public string Unit { get; set; }
         }
 
-        private static string LinkCheckUrl = $"{BaseUrl}/api/v1/revit/resource/link_exists/"; 
 
         /// <summary>
         /// Проверить, существует ли сущность по link.
@@ -340,7 +341,11 @@ namespace RevitApi_3
             };
 
             string json = JsonConvert.SerializeObject(payload);
-            string response = PostJson(ExportResourcesUrl, json, out _);
+            HttpStatusCode statusCode;
+            string response = PostJson(ExportResourcesUrl, json, out statusCode);
+            if (statusCode != HttpStatusCode.OK) {
+                return null;
+            }
             return response;
         }
 
@@ -446,7 +451,6 @@ namespace RevitApi_3
             }
             catch
             {
-                // если 200 и тело не JSON — считаем что ок
                 if (status == HttpStatusCode.OK)
                     return result;
 
@@ -456,7 +460,6 @@ namespace RevitApi_3
             if (status == HttpStatusCode.OK)
                 return result;
 
-            // обычно ошибки — 400, но не привязываемся жёстко
             if (status == HttpStatusCode.BadRequest)
                 return result;
 
@@ -473,17 +476,11 @@ namespace RevitApi_3
             {
                 action = "validate_nomenclature",
 
-                // “тех” поля (ref)
                 kind_ref = kindRef,
                 type_ref = typeRef,
                 unit_ref = unitRef,
-
-                // “человекочитаемые” поля
-                Наименование = name,
-                Артикул = article,
-                ВидНоменклатуры = kindRef,
-                ТипНоменклатуры = typeRef,
-                ЕдиницаИзмерения = unitRef
+                name = name,
+                article = article,
             };
 
             string json = JsonConvert.SerializeObject(payload);

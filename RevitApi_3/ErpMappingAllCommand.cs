@@ -24,7 +24,6 @@ namespace RevitApi_3
 
             try
             {
-                // 1. Собираем элементы по всем Спецификация_*
                 var rawItems = RevitCollectors.CollectFromAllSpecs(doc);
                 if (rawItems.Count == 0)
                 {

@@ -134,7 +134,18 @@ namespace RevitApi_3
             AddCol("Наименование", nameof(ExportRow.DisplayName));
             AddCol("Код 1C-ERP", nameof(ExportRow.ErpCode));
             AddCol("Ед. изм.", nameof(ExportRow.Unit));
-            AddCol("Количество", nameof(ExportRow.QuantityText));
+            //AddCol("Количество", nameof(ExportRow.QuantityText));
+            var quantityColumn = new DataGridTextColumn
+            {
+                Header = "Количество",
+                Binding = new Binding(nameof(ExportRow.QuantityText))
+                {
+                    Mode = BindingMode.TwoWay,
+                    UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
+                }
+            };
+
+            ExportGrid.Columns.Add(quantityColumn);
         }
 
         private void AddCol(string header, string prop)
@@ -200,7 +211,11 @@ namespace RevitApi_3
                     author,
                     _exportRows,
                     _outputProduct);
-
+                if (response == null)
+                {
+                    MessageBox.Show("Ошибка\nНеудалось выгрузить ресурсную." + response, "ERP");
+                    return;
+                }
                 _last1cLink = TryExtract1cLink(response);
                 if (!string.IsNullOrWhiteSpace(_last1cLink))
                 {
@@ -212,9 +227,7 @@ namespace RevitApi_3
                 Open1cLinkBlock.Visibility = string.IsNullOrWhiteSpace(_last1cLink)
                     ? Visibility.Collapsed
                     : Visibility.Visible;
-                MessageBox.Show("Выгрузка выполнена.\nОтвет сервера:\n" + response, "ERP");
-                //this.DialogResult = true;
-                //this.Close();
+                MessageBox.Show("Выгрузка успешно выполнена.", "ERP");
             }
             catch (Exception ex)
             {
@@ -238,8 +251,8 @@ namespace RevitApi_3
 
             if (_outputProduct == null)
             {
-                MarkFieldError("output_product", "Не выбрано выходное изделие.");
-                MessageBox.Show("Не выбрано выходное изделие. Используйте кнопку 'Подобрать / создать'.",
+                MarkFieldError("output_product", "Не выбрано выпускаемое изделие.");
+                MessageBox.Show("Не выбрано выпускаемое изделие. Используйте кнопку 'Подобрать / создать'.",
                     "ERP", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return false;
             }
@@ -305,7 +318,7 @@ namespace RevitApi_3
             // field_errors -> красим поля + выводим текст
             if (result.FieldErrors != null && result.FieldErrors.Count > 0)
             {
-                FieldErrorsText.Text = string.Join("\n", result.FieldErrors.Select(kv => $"{kv.Key}: {kv.Value}"));
+                FieldErrorsText.Text = string.Join("\n", result.FieldErrors.Select(kv => $"{kv.Value}"));
                 foreach (var kv in result.FieldErrors)
                     MarkFieldError(kv.Key, kv.Value);
             }
@@ -374,9 +387,9 @@ namespace RevitApi_3
             {
                 // неизвестное поле — просто покажем текстом
                 if (string.IsNullOrWhiteSpace(FieldErrorsText.Text))
-                    FieldErrorsText.Text = $"{key}: {msg}";
+                    FieldErrorsText.Text = $"{msg}";
                 else
-                    FieldErrorsText.Text += "\n" + $"{key}: {msg}";
+                    FieldErrorsText.Text += "\n" + $"{msg}";
             }
         }
 

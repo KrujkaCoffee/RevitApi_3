@@ -2,10 +2,9 @@
 using System.Collections.Generic;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.ExtensibleStorage;
 using Autodesk.Revit.UI;
 using System.Windows.Interop;
-using Autodesk.Revit.DB.ExtensibleStorage;
-
 
 namespace RevitApi_3
 {
@@ -29,36 +28,77 @@ namespace RevitApi_3
                 var vs = activeView as ViewSchedule;
                 if (vs == null)
                 {
-                    TaskDialog.Show("ERP", "Активный вид не является спецификацией. Откройте нужную спецификацию и повторите.");
+                    TaskDialog.Show("ERP", "Активный вид не является спецификацией.");
                     return Result.Failed;
                 }
 
-                // NEW: семантическая выгрузка (FEC + sort/group из Definition)
                 var exportRows = ScheduleSemanticExport.BuildExportRows(doc, vs);
-
                 if (exportRows == null || exportRows.Count == 0)
                 {
-                    TaskDialog.Show("ERP",
-                        "В активной спецификации нет строк данных для выгрузки (проверь фильтры/группировку).");
+                    TaskDialog.Show("ERP", "В активной спецификации нет строк для выгрузки.");
                     return Result.Succeeded;
                 }
 
-                // 2) Данные для выбора выходного изделия
+                // REST справочники
                 List<ErpTreeNode> treeRoots;
                 List<RefNamedItem> types;
                 List<RefNamedItem> units;
+                List<RefNamedItem> stages;
 
                 try
                 {
                     treeRoots = ErpClient.LoadErpTree();
                     types = ErpClient.LoadNomenclatureTypes();
                     units = ErpClient.LoadUnits();
+                    stages = ErpClient.LoadStages();
                 }
                 catch (Exception ex)
                 {
-                    TaskDialog.Show("ERP", "Сервис недоступен (подбор выходного изделия).\n" + ex.Message);
+                    TaskDialog.Show("ERP", "Сервис недоступен.\n" + ex.Message);
                     return Result.Succeeded;
                 }
+
+                // ---- читаем сохранённую ссылку на уровне спецификации ----
+                var stored = ScheduleErpLinkStorage.Read(vs);
+                string existingLink = stored?.Link ?? "";
+                string existingInfo = "";
+
+                // ---- валидируем ссылку через REST: удаляем ТОЛЬКО при явном False ----
+                if (!string.IsNullOrWhiteSpace(existingLink))
+                {
+                    bool? alive = ErpClient.CheckResourceLinkAlive(existingLink);
+                    existingInfo = string.IsNullOrWhiteSpace(stored?.CreatedAt)
+    ? "Спецификация уже была создана ранее ✅"
+    : $"Спецификация уже создана ✅ ( {stored.CreatedAt} , {stored.CreatedBy} )";
+                    if (alive == false)
+                    {
+                        using (Transaction t = new Transaction(doc, "Unbind invalid ERP link"))
+                        {
+                            t.Start();
+                            ScheduleErpLinkStorage.Clear(vs);
+                            t.Commit();
+                        }
+                        existingLink = "";
+                    }
+                }
+
+                // callback сохранения ссылки после успешного экспорта
+                Action<string, string> saveLink = (link, info) =>
+                {
+                    if (string.IsNullOrWhiteSpace(link)) return;
+
+                    using (Transaction t = new Transaction(doc, "Bind ERP link to schedule"))
+                    {
+                        t.Start();
+                        ScheduleErpLinkStorage.Write(vs, new ScheduleErpLinkInfo
+                        {
+                            Link = link.Trim(),
+                            CreatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm"),
+                            CreatedBy = info
+                        });
+                        t.Commit();
+                    }
+                };
 
                 string projectName = GetProjectTitle(doc);
                 string defaultTitle = projectName;
@@ -69,53 +109,7 @@ namespace RevitApi_3
 
                 string ctx = "Спецификация: " + vs.Name;
 
-                var stored = ScheduleErpLinkStorage.Read(vs);
-                string existingLink = stored?.Link ?? "";
-                string existingInfo = "";
-
-                if (!string.IsNullOrWhiteSpace(existingLink))
-                {
-                    existingInfo = string.IsNullOrWhiteSpace(stored?.CreatedAt)
-                        ? "Спецификация уже была создана ранее ✅"
-                        : $"Спецификация уже создана ✅ ( {stored.CreatedAt} , {stored.CreatedBy} )";
-                }
-                Action<string, string> saveLink = (link, title) =>
-                {
-                    if (string.IsNullOrWhiteSpace(link)) return;
-
-                    using (Transaction t = new Transaction(doc, "Store ERP link on schedule"))
-                    {
-                        t.Start();
-                        try
-                        {
-                            ScheduleErpLinkStorage.Write(vs, new ScheduleErpLinkInfo
-                            {
-                                Link = link,
-                                Title = title ?? "",
-                                CreatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm"),
-                                CreatedBy = WindowsUserHelper.GetFullName()
-                            });
-
-                            // опционально: продублируем в "Описание" вида, чтобы было видно в свойствах спецификации
-                            ScheduleErpLinkStorage.TryAppendToViewDescription(vs, link);
-
-                            t.Commit();
-                        }
-                        catch
-                        {
-                            t.RollBack();
-                        }
-                    }
-                };
-
-
-                //var win = new ExportWindow(exportRows, ctx, initialTitle, treeRoots, types, units);
-                var win = new ExportWindow(
-    exportRows, ctx, initialTitle,
-    treeRoots, types, units,
-    existingLink, existingInfo,
-    saveLink);
-
+                var win = new ExportWindow(exportRows, ctx, initialTitle, treeRoots, types, units, existingLink, existingInfo, saveLink);
                 var helper = new WindowInteropHelper(win);
                 helper.Owner = commandData.Application.MainWindowHandle;
 
@@ -166,92 +160,67 @@ namespace RevitApi_3
             catch { }
             return "Проект";
         }
+    }
 
-        internal class ScheduleErpLinkInfo
+    internal class ScheduleErpLinkInfo
+    {
+        public string Link { get; set; }
+        public string CreatedAt { get; set; }
+        public string CreatedBy { get; set; }
+    }
+
+    internal static class ScheduleErpLinkStorage
+    {
+        private static readonly Guid SchemaGuid = new Guid("D5D0F2D1-3EF4-4CB8-9E3E-8A74B7D8D7F1");
+
+        private static Schema GetOrCreateSchema()
         {
-            public string Link { get; set; }
-            public string Title { get; set; }
-            public string CreatedAt { get; set; }
-            public string CreatedBy { get; set; }
+            var s = Schema.Lookup(SchemaGuid);
+            if (s != null) return s;
+
+            var sb = new SchemaBuilder(SchemaGuid);
+            sb.SetSchemaName("ErpResourceExportInfo");
+            sb.AddSimpleField("Link", typeof(string));
+            sb.AddSimpleField("CreatedAt", typeof(string));
+            sb.AddSimpleField("CreatedBy", typeof(string));
+            sb.SetReadAccessLevel(AccessLevel.Public);
+            sb.SetWriteAccessLevel(AccessLevel.Public);
+            return sb.Finish();
         }
 
-        internal static class ScheduleErpLinkStorage
+        public static ScheduleErpLinkInfo Read(ViewSchedule vs)
         {
-            private static readonly Guid SchemaGuid = new Guid("D5D0F2D1-3EF4-4CB8-9E3E-8A74B7D8D7F1");
-
-            private static Schema GetOrCreateSchema()
+            try
             {
-                var s = Schema.Lookup(SchemaGuid);
-                if (s != null) return s;
+                var schema = Schema.Lookup(SchemaGuid);
+                if (schema == null) return null;
 
-                var sb = new SchemaBuilder(SchemaGuid);
-                sb.SetSchemaName("ErpResourceExportInfo");
+                var ent = vs.GetEntity(schema);
+                if (!ent.IsValid()) return null;
 
-                sb.AddSimpleField("Link", typeof(string));
-                sb.AddSimpleField("Title", typeof(string));
-                sb.AddSimpleField("CreatedAt", typeof(string));
-                sb.AddSimpleField("CreatedBy", typeof(string));
-
-                sb.SetReadAccessLevel(AccessLevel.Public);
-                sb.SetWriteAccessLevel(AccessLevel.Public);
-
-                return sb.Finish();
-            }
-
-            public static ScheduleErpLinkInfo Read(ViewSchedule vs)
-            {
-                try
+                return new ScheduleErpLinkInfo
                 {
-                    var schema = Schema.Lookup(SchemaGuid);
-                    if (schema == null) return null;
-
-                    var ent = vs.GetEntity(schema);
-                    if (!ent.IsValid()) return null;
-
-                    return new ScheduleErpLinkInfo
-                    {
-                        Link = ent.Get<string>("Link") ?? "",
-                        Title = ent.Get<string>("Title") ?? "",
-                        CreatedAt = ent.Get<string>("CreatedAt") ?? "",
-                        CreatedBy = ent.Get<string>("CreatedBy") ?? ""
-                    };
-                }
-                catch { return null; }
+                    Link = ent.Get<string>("Link") ?? "",
+                    CreatedAt = ent.Get<string>("CreatedAt") ?? "",
+                    CreatedBy = ent.Get<string>("CreatedBy") ?? ""
+                };
             }
-
-            public static void Write(ViewSchedule vs, ScheduleErpLinkInfo info)
-            {
-                var schema = GetOrCreateSchema();
-                var ent = new Entity(schema);
-
-                ent.Set("Link", info?.Link ?? "");
-                ent.Set("Title", info?.Title ?? "");
-                ent.Set("CreatedAt", info?.CreatedAt ?? "");
-                ent.Set("CreatedBy", info?.CreatedBy ?? "");
-
-                vs.SetEntity(ent);
-            }
-
-            public static void TryAppendToViewDescription(ViewSchedule vs, string link)
-            {
-                try
-                {
-                    // VIEW_DESCRIPTION обычно есть у видов (в т.ч. спецификаций) как "Описание"
-                    var p = vs.get_Parameter(BuiltInParameter.VIEW_DESCRIPTION);
-                    if (p == null || p.IsReadOnly || p.StorageType != StorageType.String) return;
-
-                    string line = "ERP: " + link.Trim();
-                    string cur = p.AsString() ?? "";
-
-                    if (cur.IndexOf(line, StringComparison.OrdinalIgnoreCase) >= 0)
-                        return;
-
-                    string next = string.IsNullOrWhiteSpace(cur) ? line : (cur.TrimEnd() + Environment.NewLine + line);
-                    p.Set(next);
-                }
-                catch { }
-            }
+            catch { return null; }
         }
 
+        public static void Write(ViewSchedule vs, ScheduleErpLinkInfo info)
+        {
+            var schema = GetOrCreateSchema();
+            var ent = new Entity(schema);
+            ent.Set("Link", info?.Link ?? "");
+            ent.Set("CreatedAt", info?.CreatedAt ?? "");
+            ent.Set("CreatedBy", info?.CreatedBy ?? "");
+            vs.SetEntity(ent);
+        }
+
+        public static void Clear(ViewSchedule vs)
+        {
+            Write(vs, new ScheduleErpLinkInfo { Link = "", CreatedAt = "", CreatedBy = "" });
+        }
     }
 }

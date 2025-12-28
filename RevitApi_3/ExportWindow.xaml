@@ -14,7 +14,7 @@
 
         <!-- Верх -->
         <StackPanel Grid.Row="0" Margin="0,0,0,8">
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
                 <TextBlock Text="Наименование ресурсной:" VerticalAlignment="Center"/>
                 <TextBox x:Name="TitleBox" Width="520" Margin="6,0,0,0"/>
                 <TextBlock x:Name="ContextLabel" Margin="12,0,0,0"
@@ -39,7 +39,7 @@
                        Margin="0,0,0,6"/>
 
 
-            <GroupBox Header="Выходное изделие">
+            <GroupBox Header="Выпускаемое изделие">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="Наименование:" VerticalAlignment="Center"/>
                     <TextBlock x:Name="OutputNameText" Margin="4,0,16,0" VerticalAlignment="Center"/>
@@ -68,7 +68,7 @@
         </StackPanel>
 
         <!-- Таблица -->
-        <GroupBox Grid.Row="1" Header="Предпросмотр (как в спецификации)">
+        <GroupBox Grid.Row="1" Header="Предпросмотр перед выгрузкой">
             <DataGrid x:Name="ExportGrid"
                       AutoGenerateColumns="False"
                       IsReadOnly="False"
@@ -92,7 +92,7 @@
         <!-- Мини-таблица ошибок -->
         <Expander Grid.Row="2"
                   x:Name="ErrorsExpander"
-                  Header="Ошибки проверки"
+                  Header="Ошибки табличной части"
                   IsExpanded="True"
                   Visibility="Collapsed"
                   Margin="0,8,0,0">
