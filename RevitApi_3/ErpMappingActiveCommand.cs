@@ -21,109 +21,98 @@ namespace RevitApi_3
             }
 
             Document doc = uidoc.Document;
-            View activeView = uidoc.ActiveView;
+            ViewSchedule schedule = uidoc.ActiveView as ViewSchedule;
+            if (schedule == null)
+            {
+                TaskDialog.Show("ERP",
+                    "Активный вид не является спецификацией. Откройте нужную спецификацию и повторите.");
+                return Result.Failed;
+            }
 
             try
             {
-                var vs = activeView as ViewSchedule;
-                if (vs == null)
-                {
-                    TaskDialog.Show("ERP", "Активный вид не является спецификацией. Откройте нужную спецификацию и повторите.");
-                    return Result.Failed;
-                }
-
-                // 1. Элементы из этой спецификации
-                var rawItems = RevitCollectors.CollectFromSchedule(doc, vs);
-                if (rawItems.Count == 0)
+                List<RevitItem> items = RevitCollectors.CollectFromSchedule(doc, schedule);
+                if (items.Count == 0)
                 {
                     TaskDialog.Show("ERP", "В активной спецификации нет элементов для обработки.");
                     return Result.Succeeded;
                 }
 
-                // 2. Гарантируем параметр
-                ErpParameters.EnsureErpCodeParameterForItems(doc, rawItems);
-
-                // 3. По одному на тип
-                var itemsByType = RevitItemUtils.GroupByType(rawItems);
-
-                // 4. Дерево ERP
-                List<ErpTreeNode> treeRoots;
-                try
+                Guid parameterGuid = ErpParameters.EnsureErpCodeParameterForItems(doc, items);
+                ScheduleMirrorTable mirror = ScheduleMirrorBuilder.Build(doc, schedule, parameterGuid);
+                if (!mirror.ResourceRows.Any())
                 {
-                    treeRoots = ErpClient.LoadErpTree();
-                }
-                catch
-                {
-                    TaskDialog.Show("ERP", "Сервис недоступен. Дерево номенклатуры получить не удалsось.");
+                    TaskDialog.Show("ERP",
+                        "В теле спецификации не удалось определить строки номенклатуры. " +
+                        "Проверьте состав видимых колонок.");
                     return Result.Succeeded;
                 }
-                string ctx = "Спецификация: " + vs.Name;
-                var win = new MappingWindow(itemsByType, treeRoots, ctx);
-                var helper = new System.Windows.Interop.WindowInteropHelper(win);
-                helper.Owner = commandData.Application.MainWindowHandle;
 
-                bool? dlgResult = win.ShowDialog();
-                if (dlgResult != true)
-                    return Result.Succeeded;
+                var window = new MappingWindow(mirror, "Спецификация: " + schedule.Name);
+                new WindowInteropHelper(window).Owner = commandData.Application.MainWindowHandle;
 
-                ApplyErpCodes(doc, win.ResultItems);
+                if (window.ShowDialog() != true) return Result.Succeeded;
+
+                int count = ApplyErpCodes(doc, window.ResultRows, parameterGuid);
+                TaskDialog.Show("ERP", "Код 1C-ERP записан в экземпляры: " + count);
                 return Result.Succeeded;
             }
             catch (Exception ex)
             {
-                TaskDialog.Show("ERP", "Ошибка: " + ex);
+                TaskDialog.Show("ERP", "Ошибка: " + ex.Message);
                 return Result.Failed;
             }
         }
-        private static void ApplyErpCodes(Document doc, IList<RevitItem> items)
+
+        private static int ApplyErpCodes(
+            Document doc,
+            IEnumerable<ScheduleMirrorRow> rows,
+            Guid parameterGuid)
         {
-            if (items == null) return;
+            var byElement = new Dictionary<int, string>();
 
-            int count = 0;
-
-            using (Transaction t = new Transaction(doc, "Set ERP codes (active spec)"))
+            foreach (ScheduleMirrorRow row in rows ?? Enumerable.Empty<ScheduleMirrorRow>())
             {
-                t.Start();
+                string code = (row.ErpCode ?? "").Trim();
+                string original = (row.OriginalErpCode ?? "").Trim();
+                if (!row.CanWriteErpCode || string.Equals(code, original, StringComparison.OrdinalIgnoreCase))
+                    continue;
 
-                // По типам
-                var groups = items
-                    .Where(r => !string.IsNullOrEmpty(r.ErpCode))
-                    .GroupBy(r => r.TypeId.IntegerValue);
-
-                foreach (var g in groups)
+                foreach (int id in row.ElementIds)
                 {
-                    ElementId typeId = new ElementId(g.Key);
-                    Element type = doc.GetElement(typeId);
-                    if (type == null) continue;
-
-                    Parameter p = type.LookupParameter(ErpParameters.ErpCodeParamName);
-                    if (p != null && !p.IsReadOnly && p.StorageType == StorageType.String)
+                    if (byElement.TryGetValue(id, out string previous) &&
+                        !string.Equals(previous, code, StringComparison.OrdinalIgnoreCase))
                     {
-                        p.Set(g.First().ErpCode);
-                        count++;
+                        throw new InvalidOperationException(
+                            $"Элемент Revit {id} попал в несколько строк с разными кодами. " +
+                            "Запись отменена; уточните группировку спецификации.");
                     }
-                    else
-                    {
-                        // fallback по экземплярам
-                        foreach (var ri in g)
-                        {
-                            Element inst = doc.GetElement(ri.ElementId);
-                            if (inst == null) continue;
-
-                            Parameter pi = inst.LookupParameter(ErpParameters.ErpCodeParamName);
-                            if (pi != null && !pi.IsReadOnly && pi.StorageType == StorageType.String)
-                            {
-                                pi.Set(ri.ErpCode);
-                                count++;
-                            }
-                        }
-                    }
+                    byElement[id] = code;
                 }
-
-                t.Commit();
             }
 
-            TaskDialog.Show("ERP", "Записано кодов (активная спецификация): " + count);
+            if (byElement.Count == 0) return 0;
+
+            using (Transaction transaction = new Transaction(doc, "Запись кодов 1C-ERP"))
+            {
+                transaction.Start();
+                foreach (KeyValuePair<int, string> pair in byElement)
+                {
+                    Element element = doc.GetElement(new ElementId(pair.Key));
+                    Parameter parameter = ErpParameters.GetCodeParameter(element, parameterGuid);
+                    if (parameter == null || parameter.IsReadOnly || parameter.StorageType != StorageType.String)
+                    {
+                        transaction.RollBack();
+                        throw new InvalidOperationException(
+                            $"Параметр «{ErpParameters.ErpCodeParamName}» недоступен для элемента {pair.Key}. " +
+                            "Ни одно изменение не сохранено.");
+                    }
+                    parameter.Set(pair.Value ?? "");
+                }
+                transaction.Commit();
+            }
+
+            return byElement.Count;
         }
     }
 }

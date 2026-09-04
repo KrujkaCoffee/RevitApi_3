@@ -19,8 +19,9 @@ namespace RevitApi_3
                 if (vs == null) continue;
 
                 if (vs.IsTemplate) continue;                 // ВАЖНО: шаблоны
-                //if (!vs.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                    //continue;
+                if (!string.IsNullOrWhiteSpace(prefix) &&
+                    !vs.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    continue;
 
                 result.Add(vs);
             }
@@ -38,31 +39,10 @@ namespace RevitApi_3
             return CollectItemsFromSchedules(doc, new[] { vs });
         }
 
-        private static string GetStringParam(Element inst, Element type, string name)
-        {
-            Parameter p = inst.LookupParameter(name);
-            if (p != null && p.StorageType == StorageType.String)
-            {
-                string s = p.AsString();
-                if (!string.IsNullOrEmpty(s)) return s;
-            }
-
-            if (type != null)
-            {
-                Parameter pt = type.LookupParameter(name);
-                if (pt != null && pt.StorageType == StorageType.String)
-                {
-                    string s = pt.AsString();
-                    if (!string.IsNullOrEmpty(s)) return s;
-                }
-            }
-
-            return string.Empty;
-        }
-
         public static List<RevitItem> CollectItemsFromSchedules(Document doc, IEnumerable<ViewSchedule> schedules)
         {
             var result = new List<RevitItem>();
+            Guid erpParameterGuid = ErpParameters.ResolveErpCodeGuid(doc);
 
             foreach (var vs in schedules)
             {
@@ -80,46 +60,17 @@ namespace RevitApi_3
 
                     Element type = doc.GetElement(inst.GetTypeId());
 
-                    string familyName = "";
-                    string typeName = "";
-
-                    var fs = type as FamilySymbol;
-                    if (fs != null)
-                    {
-                        familyName = fs.Family != null ? fs.Family.Name : "";
-                        typeName = fs.Name;
-                    }
-                    else if (type != null)
-                    {
-                        typeName = type.Name;
-                    }
-
-                    string dispName = GetDisplayName(inst, type);
-
-                    string erpCode = null;
-                    Parameter pType = type != null ? type.LookupParameter(ErpParameters.ErpCodeParamName) : null;
-                    Parameter pInst = inst.LookupParameter(ErpParameters.ErpCodeParamName);
-
-                    if (pType != null && pType.StorageType == StorageType.String)
-                        erpCode = pType.AsString();
-                    else if (pInst != null && pInst.StorageType == StorageType.String)
-                        erpCode = pInst.AsString();
-
-                    // Новые данные
-                    string unit = GetStringParam(inst, type, "ADSK_Единица измерения");
-                    double? mass = GetDoubleParam(inst, type, "ADSK_Масса");
+                    // Новая схема — экземплярная. Чтение с типа остаётся только
+                    // как миграционный fallback для документов старых версий.
+                    string erpCode = ErpParameters.ReadCode(inst, erpParameterGuid);
+                    if (string.IsNullOrWhiteSpace(erpCode))
+                        erpCode = ErpParameters.ReadCode(type, erpParameterGuid);
 
                     var item = new RevitItem
                     {
                         ElementId = inst.Id,
                         TypeId = inst.GetTypeId(),
-                        ScheduleName = vs.Name,
-                        FamilyName = familyName,
-                        TypeName = typeName,
-                        DisplayName = dispName,
-                        ErpCode = erpCode,
-                        Unit = unit,
-                        MassPerItem = mass
+                        ErpCode = erpCode
                     };
 
                     result.Add(item);
@@ -128,40 +79,5 @@ namespace RevitApi_3
             return result;
         }
 
-        public static string GetDisplayName(Element inst, Element type) 
-        {
-            Parameter p = inst.LookupParameter("ADSK_Наименование");
-            if (p != null && p.StorageType == StorageType.String && !string.IsNullOrEmpty(p.AsString()))
-                return p.AsString();
-
-            if (type != null)
-            {
-                Parameter pt = type.LookupParameter("ADSK_Наименование");
-                if (pt != null && pt.StorageType == StorageType.String && !string.IsNullOrEmpty(pt.AsString()))
-                    return pt.AsString();
-            }
-
-            if (type != null)
-                return type.Name;
-
-            return inst.Name;
-        }
-        
-
-        private static double? GetDoubleParam(Element inst, Element type, string name)
-        {
-            Parameter p = inst.LookupParameter(name);
-            if (p != null && p.StorageType == StorageType.Double)
-                return p.AsDouble();
-
-            if (type != null)
-            {
-                Parameter pt = type.LookupParameter(name);
-                if (pt != null && pt.StorageType == StorageType.Double)
-                    return pt.AsDouble();
-            }
-
-            return null;
-        }
     }
 }

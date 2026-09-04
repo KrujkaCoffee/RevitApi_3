@@ -2,54 +2,61 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Сопоставление кодов 1C-ERP"
-        Height="600" Width="1100"
+        Height="760" Width="1500" MinHeight="560" MinWidth="1050"
         WindowStartupLocation="CenterOwner">
-    <Grid x:Name="RootGrid" Margin="8">
+    <Grid Margin="8">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <!-- фильтры -->
-            <RowDefinition Height="*"/>
-            <!-- основная часть -->
             <RowDefinition Height="Auto"/>
-            <!-- низ -->
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/>
-            <!-- Revit -->
+            <ColumnDefinition Width="3*"/>
             <ColumnDefinition Width="Auto"/>
-            <!-- стрелка -->
-            <ColumnDefinition Width="*"/>
-            <!-- ERP -->
+            <ColumnDefinition Width="2*"/>
         </Grid.ColumnDefinitions>
 
-        <!-- Фильтры -->
-        <CheckBox x:Name="ChkOnlyWithoutCode"
-                  Grid.Row="0" Grid.Column="0"
-                  Content="Показывать только элементы без кода ERP"
-                  Margin="0,0,0,4"
-                  Checked="ChkOnlyWithoutCode_Changed"
-                  Unchecked="ChkOnlyWithoutCode_Changed"/>
+        <TextBlock x:Name="DiagnosticText" Grid.Row="0" Grid.ColumnSpan="3"
+                   Foreground="DarkOrange" TextWrapping="Wrap" Margin="0,0,0,6"/>
 
-        <!-- Левая таблица: Revit -->
-        <GroupBox Grid.Row="1" Grid.Column="0" Margin="0,0,4,0" Header="Номенклатуры Revit">
-            <DataGrid x:Name="RevitGrid"
-                      AutoGenerateColumns="False"
-                      SelectionMode="Extended">
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="Семейство" Binding="{Binding FamilyName}" Width="*"/>
-                    <DataGridTextColumn Header="Тип" Binding="{Binding TypeName}" Width="*"/>
-                    <DataGridTextColumn Header="Наименование" Binding="{Binding DisplayName}" Width="2*"/>
-                    <DataGridTextColumn Header="Код 1C-ERP" Binding="{Binding ErpCode}" Width="*"/>
-                    <DataGridTextColumn Header="Наименование&#10;номенклатуры в 1С" Binding="{Binding ErpName1c}" Width="2*"/>
-                </DataGrid.Columns>
+        <DockPanel Grid.Row="1" Grid.Column="0" Margin="0,0,4,6">
+            <CheckBox x:Name="ChkOnlyWithoutCode" DockPanel.Dock="Left"
+                      Content="Только без кода ERP" Margin="0,0,16,0"
+                      Checked="RevitFilter_Changed" Unchecked="RevitFilter_Changed"/>
+            <TextBlock DockPanel.Dock="Left" Text="Фильтр по спецификации:"
+                       VerticalAlignment="Center" Margin="0,0,5,0"/>
+            <TextBox x:Name="RevitSearchBox" MinWidth="220"
+                     TextChanged="RevitFilter_Changed"/>
+        </DockPanel>
+
+        <StackPanel Grid.Row="1" Grid.Column="2" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="4,0,0,6">
+            <CheckBox x:Name="ChkGlobalSearch" Content="Глобальный поиск"
+                      VerticalAlignment="Center" Margin="0,0,14,0"
+                      Checked="ChkGlobalSearch_Changed" Unchecked="ChkGlobalSearch_Changed"/>
+            <TextBlock Text="Поиск по ERP:" VerticalAlignment="Center" Margin="0,0,5,0"/>
+            <TextBox x:Name="ErpSearchBox" Width="260"
+                     TextChanged="ErpSearchBox_TextChanged"/>
+        </StackPanel>
+
+        <GroupBox Grid.Row="2" Grid.Column="0" Margin="0,0,4,0"
+                  Header="Строки активной спецификации (ячейки Revit 1:1)">
+            <DataGrid x:Name="RevitGrid" AutoGenerateColumns="False"
+                      IsReadOnly="True" SelectionMode="Extended"
+                      SelectionUnit="FullRow" CanUserAddRows="False"
+                      CanUserSortColumns="False" CanUserReorderColumns="False"
+                      EnableRowVirtualization="True" EnableColumnVirtualization="True"
+                      LoadingRow="RevitGrid_LoadingRow">
                 <DataGrid.RowStyle>
                     <Style TargetType="DataGridRow">
+                        <Setter Property="ToolTip" Value="{Binding MatchInfo}"/>
                         <Style.Triggers>
-                            <DataTrigger Binding="{Binding ErpCode}" Value="">
+                            <DataTrigger Binding="{Binding HasMissingErpCode}" Value="True">
                                 <Setter Property="Background" Value="LightCoral"/>
                             </DataTrigger>
-                            <DataTrigger Binding="{Binding ErpCode}" Value="-">
-                                <Setter Property="Background" Value="LightCoral"/>
+                            <DataTrigger Binding="{Binding CanWriteErpCode}" Value="False">
+                                <Setter Property="Foreground" Value="Gray"/>
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>
@@ -57,30 +64,21 @@
             </DataGrid>
         </GroupBox>
 
-        <!-- Кнопка-стрелка -->
-        <StackPanel Grid.Row="1" Grid.Column="1" VerticalAlignment="Center">
-            <Button x:Name="BtnAssignCode"
-                    Content="⟵"
-                    Width="40" Height="40"
-                    ToolTip="Применить выбранный код 1C к выделенным строкам Revit"
+        <StackPanel Grid.Row="2" Grid.Column="1" VerticalAlignment="Center">
+            <Button x:Name="BtnAssignCode" Content="⟵" Width="42" Height="42"
+                    ToolTip="Назначить выбранный код ERP выделенным строкам"
                     Click="BtnAssignCode_Click"/>
         </StackPanel>
 
-        <!-- Правая часть: дерево + таблица кодов -->
-        <GroupBox Grid.Row="1" Grid.Column="2" Margin="4,0,0,0" Header="Номенклатуры 1C-ERP">
+        <GroupBox Grid.Row="2" Grid.Column="2" Margin="4,0,0,0" Header="Номенклатура 1C-ERP">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="2*"/>
-                    <!-- дерево -->
                     <RowDefinition Height="Auto"/>
-                    <!-- строка поиска -->
-                    <RowDefinition Height="*"/>
-                    <!-- таблица кодов -->
+                    <RowDefinition Height="3*"/>
                 </Grid.RowDefinitions>
 
-                <!-- Дерево ERP -->
-                <TreeView x:Name="ErpTree"
-                          Grid.Row="0"
+                <TreeView x:Name="ErpTree" Grid.Row="0"
                           SelectedItemChanged="ErpTree_SelectedItemChanged">
                     <TreeView.ItemTemplate>
                         <HierarchicalDataTemplate ItemsSource="{Binding Children}">
@@ -89,52 +87,26 @@
                     </TreeView.ItemTemplate>
                 </TreeView>
 
-                <!-- Поиск по кодам -->
-                <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,4,0,4">
-                    <TextBlock Text="Поиск по ERP:" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                    <TextBox x:Name="ErpSearchBox"
-                             Width="220"
-                             TextChanged="ErpSearchBox_TextChanged"/>
-                </StackPanel>
+                <TextBlock x:Name="ErpStatusText" Grid.Row="1" Margin="0,5"
+                           Foreground="DimGray" TextWrapping="Wrap"/>
 
-                <!-- Таблица кодов -->
-                <DataGrid x:Name="ErpGrid"
-                          Grid.Row="2"
-                          AutoGenerateColumns="False">
+                <DataGrid x:Name="ErpGrid" Grid.Row="2" AutoGenerateColumns="False"
+                          IsReadOnly="True" CanUserAddRows="False" SelectionMode="Single">
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="Код" Binding="{Binding Code}" Width="*"/>
-                        <DataGridTextColumn Header="Наименование" Binding="{Binding Name}" Width="2*"/>
-                        <DataGridTextColumn Header="Ед. изм." Binding="{Binding Unit}" Width="Auto" MinWidth="70"/>
+                        <DataGridTextColumn Header="Код" Binding="{Binding Code}" Width="Auto" MinWidth="110"/>
+                        <DataGridTextColumn Header="Наименование" Binding="{Binding Name}" Width="2*" MinWidth="180"/>
+                        <DataGridTextColumn Header="Ед. изм." Binding="{Binding Unit}" Width="Auto" MinWidth="75"/>
                         <DataGridTextColumn Header="Дополнительно" Binding="{Binding Extra}" Width="*"/>
                     </DataGrid.Columns>
                 </DataGrid>
             </Grid>
         </GroupBox>
 
-        <!-- Нижняя панель -->
-        <StackPanel Grid.Row="2" Grid.ColumnSpan="3"
-                    Orientation="Horizontal"
-                    HorizontalAlignment="Right"
-                    Margin="0,8,0,0">
-            <Button x:Name="BtnCreateNomenclature"
-        Content="➕ Создать"
-        Width="110" Margin="0,0,8,0"
-        Click="BtnCreateNomenclature_Click"
-        Visibility="Collapsed"/>
-
-            <Button x:Name="BtnAutoMap"
-                    Content="🔁 Авто по имени"
-                    Width="140" Margin="0,0,8,0"
-                    Visibility="Hidden"
-                    Click="BtnAutoMap_Click"/>
-            <Button x:Name="BtnSave"
-                    Content="💾 Записать в модель"
-                    Width="170" Margin="0,0,8,0"
-                    Click="BtnSave_Click"/>
-            <Button x:Name="BtnClose"
-                    Content="✖ Закрыть"
-                    Width="90"
-                    Click="BtnClose_Click"/>
+        <StackPanel Grid.Row="3" Grid.ColumnSpan="3" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="0,8,0,0">
+            <Button x:Name="BtnSave" Content="Записать в модель" Width="165"
+                    Margin="0,0,8,0" Click="BtnSave_Click"/>
+            <Button Content="Закрыть" Width="90" Click="BtnClose_Click"/>
         </StackPanel>
     </Grid>
 </Window>

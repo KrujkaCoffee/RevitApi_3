@@ -5,167 +5,187 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
-// test
+
 namespace RevitApi_3
 {
     public partial class ExportWindow : Window
     {
-        private string _last1cLink;
+        private readonly ScheduleMirrorTable _table;
         private readonly string _contextInfo;
-        private readonly List<ExportRow> _exportRows;
+        private readonly string _existingInfoText;
+        private readonly Action<string, string> _saveScheduleLink;
+        private readonly Action _clearScheduleLink;
 
-        private readonly List<ErpTreeNode> _treeRoots;
-        private readonly List<RefNamedItem> _types;
-        private readonly List<RefNamedItem> _units;
+        private readonly ObservableCollection<RefNamedItem> _stages =
+            new ObservableCollection<RefNamedItem>();
+        private readonly ObservableCollection<TableErrorVm> _tableErrors =
+            new ObservableCollection<TableErrorVm>();
 
+        private List<ErpTreeNode> _treeRoots = new List<ErpTreeNode>();
+        private List<RefNamedItem> _types = new List<RefNamedItem>();
+        private List<RefNamedItem> _units = new List<RefNamedItem>();
         private ErpItem _outputProduct;
-
-        // Стадии под ComboBox (грузим через REST уже в окне)
-        private readonly ObservableCollection<RefNamedItem> _stages = new ObservableCollection<RefNamedItem>();
-
-        // Ошибки таблицы
-        private readonly ObservableCollection<TableErrorVm> _tableErrors = new ObservableCollection<TableErrorVm>();
+        private string _last1cLink;
+        private bool _isBusy;
 
         public string DocTitle => (TitleBox.Text ?? "").Trim();
-
-        private readonly Action<string, string> _saveScheduleLink;
-        private readonly string _existingInfoText;
-
+        public bool ExportSucceeded { get; private set; }
 
         public ExportWindow(
-            List<ExportRow> exportRows,
+            ScheduleMirrorTable table,
             string contextInfo,
             string initialTitle,
-            List<ErpTreeNode> treeRoots,
-            List<RefNamedItem> types,
-            List<RefNamedItem> units,
             string existing1cLink,
             string existingInfoText,
-            Action<string, string> saveScheduleLink)
-
+            Action<string, string> saveScheduleLink,
+            Action clearScheduleLink)
         {
             InitializeComponent();
 
+            _table = table ?? throw new ArgumentNullException(nameof(table));
             _contextInfo = contextInfo ?? "";
-            _treeRoots = treeRoots ?? new List<ErpTreeNode>();
-            _types = types ?? new List<RefNamedItem>();
-            _units = units ?? new List<RefNamedItem>();
-
             _existingInfoText = existingInfoText ?? "";
             _saveScheduleLink = saveScheduleLink;
+            _clearScheduleLink = clearScheduleLink;
+            _last1cLink = existing1cLink ?? "";
 
-            // если спецификация уже выгружалась — сразу показываем ссылку
-            if (!string.IsNullOrWhiteSpace(existing1cLink))
-            {
-                _last1cLink = existing1cLink;
-
-                SuccessText.Text = string.IsNullOrWhiteSpace(_existingInfoText)
-                    ? "Спецификация уже была создана ранее ✅"
-                    : _existingInfoText;
-
-                Open1cLinkBlock.Visibility = Visibility.Visible;
-            }
-
-
-            _exportRows = exportRows ?? new List<ExportRow>();
-
-            TitleBox.Text = initialTitle ?? string.Empty;
+            Title = "Выгрузка ресурсной в ERP — " + _contextInfo;
+            TitleBox.Text = initialTitle ?? "";
             ContextLabel.Text = _contextInfo;
-
-            // Автор/даты
+            DiagnosticText.Text = _table.Diagnostic ?? "";
             AuthorBox.Text = WindowsUserHelper.GetFullName();
             StartDatePicker.SelectedDate = DateTime.Today;
             EndDatePicker.SelectedDate = DateTime.Today.AddDays(7);
 
+            if (!string.IsNullOrWhiteSpace(_last1cLink))
+            {
+                SuccessText.Text = string.IsNullOrWhiteSpace(_existingInfoText)
+                    ? "Спецификация уже была создана ранее"
+                    : _existingInfoText;
+                Open1cLinkBlock.Visibility = Visibility.Visible;
+            }
+
             BuildColumns();
-            ExportGrid.ItemsSource = _exportRows;
-
-            ExportGrid.LoadingRow += ExportGrid_LoadingRow;
-
+            ExportGrid.ItemsSource = _table.Rows;
             ErrorsGrid.ItemsSource = _tableErrors;
-
-            this.Loaded += ExportWindow_Loaded;
-            this.Title = "Выгрузка ресурсной в ERP — " + _contextInfo;
+            Loaded += ExportWindow_Loaded;
         }
 
-        private void ExportWindow_Loaded(object sender, RoutedEventArgs e)
+        private async void ExportWindow_Loaded(object sender, RoutedEventArgs e)
         {
-            // Стадии грузим уже здесь (чтобы окно не падало, если сервис недоступен)
             try
             {
-                var stages = ErpClient.LoadStages() ?? new List<RefNamedItem>();
-                _stages.Clear();
-                foreach (var s in stages)
-                    _stages.Add(s);
+                await Task.WhenAll(LoadReferenceDataAsync(), ValidateStoredLinkAsync());
             }
-            catch
+            catch (Exception ex)
             {
-                // оставляем пустым: Stage по дефолту пустой, ComboBox просто будет без значений
+                SetServiceStatus("Ошибка инициализации окна ERP: " + ex.Message);
             }
         }
 
         private void BuildColumns()
         {
             ExportGrid.Columns.Clear();
-            ExportGrid.AutoGenerateColumns = false;
-
-            // Этап — редактируемый ComboBox, значение в ExportRow.Stage = RefKey (строка)
             ExportGrid.Columns.Add(new DataGridComboBoxColumn
             {
-                Header = "Этап",
+                Header = "Этап ERP",
                 ItemsSource = _stages,
                 DisplayMemberPath = nameof(RefNamedItem.Name),
                 SelectedValuePath = nameof(RefNamedItem.RefKey),
-                SelectedValueBinding = new Binding(nameof(ExportRow.Stage))
+                SelectedValueBinding = new Binding(nameof(ScheduleMirrorRow.Stage))
                 {
                     Mode = BindingMode.TwoWay,
                     UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-                }
+                },
+                MinWidth = 120
             });
 
-            AddCol("Семейство", nameof(ExportRow.FamilyName));
-            AddCol("Тип", nameof(ExportRow.TypeName));
-            AddCol("Наименование", nameof(ExportRow.DisplayName));
-            AddCol("Код 1C-ERP", nameof(ExportRow.ErpCode));
-            AddCol("Ед. изм.", nameof(ExportRow.Unit));
-            //AddCol("Количество", nameof(ExportRow.QuantityText));
-            var quantityColumn = new DataGridTextColumn
+            foreach (ScheduleMirrorColumn column in _table.Columns.OrderBy(x => x.Index))
             {
-                Header = "Количество",
-                Binding = new Binding(nameof(ExportRow.QuantityText))
+                bool editableQuantity = column.IsQuantity;
+                ExportGrid.Columns.Add(new DataGridTextColumn
                 {
-                    Mode = BindingMode.TwoWay,
-                    UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
-                }
-            };
+                    Header = column.Header,
+                    Binding = new Binding($"Values[{column.Index}]")
+                    {
+                        Mode = editableQuantity ? BindingMode.TwoWay : BindingMode.OneWay,
+                        UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
+                    },
+                    IsReadOnly = !editableQuantity,
+                    MinWidth = 85,
+                    Width = DataGridLength.Auto
+                });
+            }
 
-            ExportGrid.Columns.Add(quantityColumn);
-        }
-
-        private void AddCol(string header, string prop)
-        {
-            ExportGrid.Columns.Add(new DataGridTextColumn
+            if (_table.ErpCodeColumnIndex < 0)
             {
-                Header = header,
-                Binding = new Binding(prop),
-                IsReadOnly = true
-            });
+                ExportGrid.Columns.Add(new DataGridTextColumn
+                {
+                    Header = "Код 1C-ERP (служебный)",
+                    Binding = new Binding(nameof(ScheduleMirrorRow.ErpCode)),
+                    IsReadOnly = true,
+                    MinWidth = 125,
+                    Width = DataGridLength.Auto
+                });
+            }
         }
 
-        private void ExportGrid_LoadingRow(object sender, DataGridRowEventArgs e)
+        private async Task LoadReferenceDataAsync()
         {
-            e.Row.Header = (e.Row.GetIndex() + 1).ToString();
+            SetServiceStatus("Загрузка справочников ERP…");
+            try
+            {
+                Task<List<ErpTreeNode>> treeTask = Task.Run(() => ErpClient.LoadErpTree());
+                Task<List<RefNamedItem>> typesTask = Task.Run(() => ErpClient.LoadNomenclatureTypes());
+                Task<List<RefNamedItem>> unitsTask = Task.Run(() => ErpClient.LoadUnits());
+                Task<List<RefNamedItem>> stagesTask = Task.Run(() => ErpClient.LoadStages());
+
+                await Task.WhenAll(treeTask, typesTask, unitsTask, stagesTask);
+                _treeRoots = treeTask.Result ?? new List<ErpTreeNode>();
+                _types = typesTask.Result ?? new List<RefNamedItem>();
+                _units = unitsTask.Result ?? new List<RefNamedItem>();
+                _stages.Clear();
+                foreach (RefNamedItem stage in stagesTask.Result ?? new List<RefNamedItem>())
+                    _stages.Add(stage);
+
+                BtnPickOutput.IsEnabled = true;
+                SetServiceStatus("Справочники ERP загружены.");
+            }
+            catch (Exception ex)
+            {
+                BtnPickOutput.IsEnabled = false;
+                SetServiceStatus("Справочники ERP недоступны: " + ex.Message);
+            }
+        }
+
+        private async Task ValidateStoredLinkAsync()
+        {
+            if (string.IsNullOrWhiteSpace(_last1cLink)) return;
+            string checkedLink = _last1cLink;
+            bool? alive = await Task.Run(() => ErpClient.CheckResourceLinkAlive(checkedLink));
+            if (alive != false || !string.Equals(_last1cLink, checkedLink, StringComparison.Ordinal))
+                return;
+
+            _last1cLink = "";
+            SuccessText.Text = "Сохранённая ссылка ERP больше не существует.";
+            Open1cLinkBlock.Visibility = Visibility.Collapsed;
+            try { _clearScheduleLink?.Invoke(); }
+            catch (Exception ex)
+            {
+                SetServiceStatus("Не удалось очистить ссылку в Revit: " + ex.Message);
+            }
         }
 
         private void BtnPickOutput_Click(object sender, RoutedEventArgs e)
         {
-            var win = new OutputProductWindow(
+            var window = new OutputProductWindow(
                 _treeRoots,
                 _types,
                 _units,
@@ -173,133 +193,136 @@ namespace RevitApi_3
                 initialName: "",
                 initialKindRefKey: OutputProductState.LastKindRefKey,
                 initialKindName: OutputProductState.LastKindName);
+            new WindowInteropHelper(window).Owner = new WindowInteropHelper(this).Handle;
 
-            var helper = new WindowInteropHelper(win);
-            helper.Owner = new WindowInteropHelper(this).Handle;
-
-            bool? dlg = win.ShowDialog();
-            if (dlg == true && win.SelectedProduct != null)
+            if (window.ShowDialog() == true && window.SelectedProduct != null)
             {
-                _outputProduct = win.SelectedProduct;
+                _outputProduct = window.SelectedProduct;
                 OutputNameText.Text = _outputProduct.Name;
                 OutputCodeText.Text = _outputProduct.Code;
             }
         }
 
-        private void BtnCheck_Click(object sender, RoutedEventArgs e)
+        private async void BtnCheck_Click(object sender, RoutedEventArgs e)
         {
-            RunValidate(showOkMessage: true);
+            await RunValidateAsync(showOkMessage: true);
         }
 
-        private void BtnExport_Click(object sender, RoutedEventArgs e)
+        private async void BtnExport_Click(object sender, RoutedEventArgs e)
         {
-            if (!RunValidate(showOkMessage: false))
-                return;
+            if (!await RunValidateAsync(showOkMessage: false)) return;
 
-            string title = DocTitle;
-            string author = (AuthorBox.Text ?? "").Trim();
-            string startDate = FormatDate(StartDatePicker.SelectedDate);
-            string endDate = FormatDate(EndDatePicker.SelectedDate);
-
+            SetBusy(true, "Выгрузка ресурсной в ERP…");
             try
             {
-                string response = ErpClient.ExportResources(
+                string title = DocTitle;
+                string startDate = FormatDate(StartDatePicker.SelectedDate);
+                string endDate = FormatDate(EndDatePicker.SelectedDate);
+                string author = (AuthorBox.Text ?? "").Trim();
+                ErpItem outputProduct = _outputProduct;
+                string response = await Task.Run(() => ErpClient.ExportResources(
                     title,
                     _contextInfo,
                     startDate,
                     endDate,
                     author,
-                    _exportRows,
-                    _outputProduct);
-                if (response == null)
-                {
-                    MessageBox.Show("Ошибка\nНеудалось выгрузить ресурсную." + response, "ERP");
-                    return;
-                }
+                    _table,
+                    outputProduct));
+
+                ExportSucceeded = true;
                 _last1cLink = TryExtract1cLink(response);
                 if (!string.IsNullOrWhiteSpace(_last1cLink))
                 {
-                    _saveScheduleLink?.Invoke(_last1cLink, DocTitle);
+                    try { _saveScheduleLink?.Invoke(_last1cLink, author); }
+                    catch (Exception storageError)
+                    {
+                        MessageBox.Show(
+                            "Ресурсная создана, но ссылку не удалось сохранить в Revit: " + storageError.Message,
+                            "ERP", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
                 }
 
-                SuccessText.Text = "Спецификация успешно создана ✅";
-
+                SuccessText.Text = "Спецификация успешно создана";
                 Open1cLinkBlock.Visibility = string.IsNullOrWhiteSpace(_last1cLink)
                     ? Visibility.Collapsed
                     : Visibility.Visible;
-                MessageBox.Show("Выгрузка успешно выполнена.", "ERP");
+                MessageBox.Show("Выгрузка успешно выполнена.", "ERP",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Ошибка при выгрузке ресурсной: " + ex.Message,
                     "ERP", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+            finally
+            {
+                SetBusy(false, "");
+            }
         }
 
-        private bool RunValidate(bool showOkMessage)
+        private async Task<bool> RunValidateAsync(bool showOkMessage)
         {
+            ExportGrid.CommitEdit(DataGridEditingUnit.Cell, true);
+            ExportGrid.CommitEdit(DataGridEditingUnit.Row, true);
             ClearValidationUi();
 
-            string title = DocTitle;
-            if (string.IsNullOrWhiteSpace(title))
+            if (string.IsNullOrWhiteSpace(DocTitle))
             {
-                MarkFieldError("title", "Необходимо заполнить Наименование ресурсной.");
-                MessageBox.Show("Необходимо заполнить Наименование ресурсной.", "ERP",
+                MarkFieldError("title", "Необходимо заполнить наименование ресурсной.");
+                MessageBox.Show("Необходимо заполнить наименование ресурсной.", "ERP",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return false;
+            }
+            if (_outputProduct == null)
+            {
+                MarkFieldError("output_product", "Не выбрано выпускаемое изделие.");
+                MessageBox.Show("Выберите выпускаемое изделие.", "ERP",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return false;
             }
 
-            if (_outputProduct == null)
-            {
-                MarkFieldError("output_product", "Не выбрано выпускаемое изделие.");
-                MessageBox.Show("Не выбрано выпускаемое изделие. Используйте кнопку 'Подобрать / создать'.",
-                    "ERP", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return false;
-            }
-
-            string author = (AuthorBox.Text ?? "").Trim();
-            string startDate = FormatDate(StartDatePicker.SelectedDate);
-            string endDate = FormatDate(EndDatePicker.SelectedDate);
-
-            // локальная быстрая проверка ERP-кодов (оставляем)
-            var badRows = _exportRows
-                .Where(r => string.IsNullOrWhiteSpace(r.ErpCode) || r.ErpCode == "-")
+            List<ScheduleMirrorRow> missingCodes = _table.ResourceRows
+                .Where(x => x.HasMissingErpCode)
                 .ToList();
-
-            if (badRows.Count > 0)
+            if (missingCodes.Count > 0)
             {
                 ExportGrid.Items.Refresh();
+                ScheduleMirrorRow first = missingCodes[0];
+                ExportGrid.SelectedItem = first;
+                ExportGrid.ScrollIntoView(first);
                 MessageBox.Show(
-                    "Проверка/выгрузка невозможна: есть строки без кода 1C-ERP или с кодом '-'.\n" +
-                    "Такие строки подсвечены красным.",
+                    $"Есть строки ресурсов без кода 1C-ERP: {missingCodes.Count}. " +
+                    "Выполните сопоставление активной спецификации.",
                     "ERP", MessageBoxButton.OK, MessageBoxImage.Error);
                 return false;
             }
 
+            SetBusy(true, "Проверка данных в ERP…");
             try
             {
-                var result = ErpClient.ValidateResources(
-                    title,
-                    _contextInfo,
-                    startDate,
-                    endDate,
-                    author,
-                    _exportRows,
-                    _outputProduct);
+                string title = DocTitle;
+                string startDate = FormatDate(StartDatePicker.SelectedDate);
+                string endDate = FormatDate(EndDatePicker.SelectedDate);
+                string author = (AuthorBox.Text ?? "").Trim();
+                ErpItem outputProduct = _outputProduct;
+                ErpClient.ResourceValidationResult result = await Task.Run(() =>
+                    ErpClient.ValidateResources(
+                        title,
+                        _contextInfo,
+                        startDate,
+                        endDate,
+                        author,
+                        _table,
+                        outputProduct));
 
                 ApplyValidationResult(result);
-
                 if (result == null || !result.HasErrors)
                 {
                     if (showOkMessage)
-                    {
-                        MessageBox.Show("Проверка успешна ✅", "ERP",
+                        MessageBox.Show("Проверка успешна.", "ERP",
                             MessageBoxButton.OK, MessageBoxImage.Information);
-                    }
                     return true;
                 }
-
-                // есть ошибки
                 return false;
             }
             catch (Exception ex)
@@ -308,48 +331,69 @@ namespace RevitApi_3
                     MessageBoxButton.OK, MessageBoxImage.Error);
                 return false;
             }
+            finally
+            {
+                SetBusy(false, "");
+            }
         }
 
         private void ApplyValidationResult(ErpClient.ResourceValidationResult result)
         {
-            if (result == null)
-                return;
+            if (result == null) return;
 
-            // field_errors -> красим поля + выводим текст
-            if (result.FieldErrors != null && result.FieldErrors.Count > 0)
+            if (result.FieldErrors != null)
             {
-                FieldErrorsText.Text = string.Join("\n", result.FieldErrors.Select(kv => $"{kv.Value}"));
-                foreach (var kv in result.FieldErrors)
-                    MarkFieldError(kv.Key, kv.Value);
+                FieldErrorsText.Text = string.Join("\n", result.FieldErrors.Values);
+                foreach (KeyValuePair<string, string> error in result.FieldErrors)
+                    MarkFieldError(error.Key, error.Value);
             }
 
-            // table_errors -> мини таблица
             _tableErrors.Clear();
-            if (result.TableErrors != null && result.TableErrors.Count > 0)
+            List<ScheduleMirrorRow> resourceRows = _table.ResourceRows.ToList();
+            foreach (ErpClient.ResourceTableError error in
+                     result.TableErrors ?? new List<ErpClient.ResourceTableError>())
             {
-                foreach (var e in result.TableErrors)
-                    _tableErrors.Add(new TableErrorVm { Row = e.Row, Msg = e.Msg });
+                int sourceRow = error.SourceRow;
+                if (sourceRow <= 0 && error.Row > 0 && error.Row <= resourceRows.Count)
+                    sourceRow = resourceRows[error.Row - 1].SourceRowNumber;
 
-                ErrorsExpander.Visibility = Visibility.Visible;
+                _tableErrors.Add(new TableErrorVm
+                {
+                    ExportRow = error.Row,
+                    SourceRow = sourceRow,
+                    Msg = error.Msg
+                });
             }
-            else
-            {
-                ErrorsExpander.Visibility = Visibility.Collapsed;
-            }
+            ErrorsExpander.Visibility = _tableErrors.Count == 0
+                ? Visibility.Collapsed
+                : Visibility.Visible;
         }
 
         private void ErrorsGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            var sel = ErrorsGrid.SelectedItem as TableErrorVm;
-            if (sel == null) return;
+            TableErrorVm selected = ErrorsGrid.SelectedItem as TableErrorVm;
+            if (selected == null) return;
 
-            int idx = sel.Row - 1;
-            if (idx < 0 || idx >= _exportRows.Count) return;
+            ScheduleMirrorRow row = selected.SourceRow > 0
+                ? _table.Rows.FirstOrDefault(x => x.SourceRowNumber == selected.SourceRow)
+                : _table.ResourceRows.Skip(Math.Max(0, selected.ExportRow - 1)).FirstOrDefault();
+            if (row == null) return;
 
-            var item = _exportRows[idx];
-            ExportGrid.SelectedItem = item;
-            ExportGrid.ScrollIntoView(item);
+            ExportGrid.SelectedItem = row;
+            ExportGrid.ScrollIntoView(row);
             ExportGrid.Focus();
+        }
+
+        private void ExportGrid_LoadingRow(object sender, DataGridRowEventArgs e)
+        {
+            ScheduleMirrorRow row = e.Row.Item as ScheduleMirrorRow;
+            e.Row.Header = row?.SourceRowNumber.ToString() ?? "";
+        }
+
+        private void ExportGrid_BeginningEdit(object sender, DataGridBeginningEditEventArgs e)
+        {
+            if (!(e.Row.Item is ScheduleMirrorRow row) || !row.IsResourceRow)
+                e.Cancel = true;
         }
 
         private void ClearValidationUi()
@@ -357,205 +401,171 @@ namespace RevitApi_3
             FieldErrorsText.Text = "";
             ErrorsExpander.Visibility = Visibility.Collapsed;
             _tableErrors.Clear();
-
-            // сброс подсветки полей
             ResetField(TitleBox);
             ResetField(AuthorBox);
             ResetField(StartDatePicker);
             ResetField(EndDatePicker);
         }
 
-        private static string FormatDate(DateTime? dt)
+        private void MarkFieldError(string key, string message)
         {
-            return dt.HasValue ? dt.Value.ToString("yyyy-MM-dd") : "";
-        }
-
-        private void MarkFieldError(string key, string msg)
-        {
-            // Мягкая привязка по ключам (на случай разных имен на бэке)
-            var k = (key ?? "").ToLowerInvariant();
-
-            if (k.Contains("title") || k.Contains("name"))
-                SetFieldError(TitleBox, msg);
-            else if (k.Contains("author") || k.Contains("creator"))
-                SetFieldError(AuthorBox, msg);
-            else if (k.Contains("start"))
-                SetFieldError(StartDatePicker, msg);
-            else if (k.Contains("end") || k.Contains("finish"))
-                SetFieldError(EndDatePicker, msg);
+            string normalized = (key ?? "").ToLowerInvariant();
+            if (normalized.Contains("title") || normalized.Contains("name"))
+                SetFieldError(TitleBox, message);
+            else if (normalized.Contains("author") || normalized.Contains("creator"))
+                SetFieldError(AuthorBox, message);
+            else if (normalized.Contains("start"))
+                SetFieldError(StartDatePicker, message);
+            else if (normalized.Contains("end") || normalized.Contains("finish"))
+                SetFieldError(EndDatePicker, message);
+            else if (string.IsNullOrWhiteSpace(FieldErrorsText.Text))
+                FieldErrorsText.Text = message;
             else
-            {
-                // неизвестное поле — просто покажем текстом
-                if (string.IsNullOrWhiteSpace(FieldErrorsText.Text))
-                    FieldErrorsText.Text = $"{msg}";
-                else
-                    FieldErrorsText.Text += "\n" + $"{msg}";
-            }
+                FieldErrorsText.Text += "\n" + message;
         }
 
-        private static void SetFieldError(Control c, string msg)
+        private static void SetFieldError(Control control, string message)
         {
-            c.BorderBrush = Brushes.Red;
-            c.BorderThickness = new Thickness(2);
-            c.ToolTip = msg;
+            control.BorderBrush = Brushes.Red;
+            control.BorderThickness = new Thickness(2);
+            control.ToolTip = message;
         }
 
-        private static void ResetField(Control c)
+        private static void ResetField(Control control)
         {
-            c.ClearValue(BorderBrushProperty);
-            c.ClearValue(BorderThicknessProperty);
-            c.ToolTip = null;
+            control.ClearValue(BorderBrushProperty);
+            control.ClearValue(BorderThicknessProperty);
+            control.ToolTip = null;
+        }
+
+        private void SetBusy(bool busy, string status)
+        {
+            _isBusy = busy;
+            BtnCheck.IsEnabled = !busy;
+            BtnExport.IsEnabled = !busy;
+            BtnPickOutput.IsEnabled = !busy && _treeRoots.Count > 0;
+            ExportGrid.IsEnabled = !busy;
+            TitleBox.IsEnabled = !busy;
+            StartDatePicker.IsEnabled = !busy;
+            EndDatePicker.IsEnabled = !busy;
+            if (!string.IsNullOrWhiteSpace(status)) SetServiceStatus(status);
+        }
+
+        private void SetServiceStatus(string text)
+        {
+            ServiceStatusText.Text = text ?? "";
         }
 
         private void BtnClose_Click(object sender, RoutedEventArgs e)
         {
-            this.DialogResult = false;
-            this.Close();
+            if (_isBusy) return;
+            DialogResult = false;
         }
 
         private void Open1cLinkBlock_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            if (string.IsNullOrWhiteSpace(_last1cLink)) return;
-            OpenIn1c(_last1cLink);
+            if (!string.IsNullOrWhiteSpace(_last1cLink)) OpenIn1c(_last1cLink);
+        }
+
+        private static string FormatDate(DateTime? date)
+        {
+            return date.HasValue ? date.Value.ToString("yyyy-MM-dd") : "";
         }
 
         private static string TryExtract1cLink(string response)
         {
             if (string.IsNullOrWhiteSpace(response)) return null;
-
             try
             {
-                var token = JToken.Parse(response);
-                var found = Find1cLinkInJson(token);
-                if (!string.IsNullOrWhiteSpace(found))
-                    return Uri.UnescapeDataString(found);
+                string found = Find1cLinkInJson(JToken.Parse(response));
+                if (!string.IsNullOrWhiteSpace(found)) return Uri.UnescapeDataString(found);
             }
-            catch { /* ignore */ }
+            catch { }
 
-            int idx = response.IndexOf("e1c://", StringComparison.OrdinalIgnoreCase);
-            if (idx >= 0)
-            {
-                int end = idx;
-                while (end < response.Length)
-                {
-                    char ch = response[end];
-                    if (char.IsWhiteSpace(ch) || ch == '"' || ch == '\'' || ch == '\r' || ch == '\n')
-                        break;
-                    end++;
-                }
-                return Uri.UnescapeDataString(response.Substring(idx, end - idx));
-            }
-
-            return null;
+            int index = response.IndexOf("e1c://", StringComparison.OrdinalIgnoreCase);
+            if (index < 0) return null;
+            int end = index;
+            while (end < response.Length && !char.IsWhiteSpace(response[end]) &&
+                   response[end] != '"' && response[end] != '\'')
+                end++;
+            return Uri.UnescapeDataString(response.Substring(index, end - index));
         }
 
         private static string Find1cLinkInJson(JToken token)
         {
             if (token == null) return null;
-
             if (token.Type == JTokenType.String)
             {
-                string s = token.Value<string>();
-                if (!string.IsNullOrWhiteSpace(s) && s.IndexOf("e1c://", StringComparison.OrdinalIgnoreCase) >= 0)
-                    return s;
+                string value = token.Value<string>();
+                if (!string.IsNullOrWhiteSpace(value) &&
+                    value.IndexOf("e1c://", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return value;
             }
-
             if (token is JObject obj)
             {
-                foreach (var prop in obj.Properties())
+                foreach (JProperty property in obj.Properties())
                 {
-                    string name = (prop.Name ?? "").ToLowerInvariant();
-
-                    if (prop.Value?.Type == JTokenType.String)
-                    {
-                        string val = prop.Value.Value<string>();
-                        if (!string.IsNullOrWhiteSpace(val) &&
-                            (name.Contains("Ссылка") || name.Contains("url") || name.Contains("href") || name.Contains("e1c")) &&
-                            val.IndexOf("e1c://", StringComparison.OrdinalIgnoreCase) >= 0)
-                            return val;
-                    }
-
-                    var nested = Find1cLinkInJson(prop.Value);
-                    if (!string.IsNullOrWhiteSpace(nested))
-                        return nested;
+                    string nested = Find1cLinkInJson(property.Value);
+                    if (!string.IsNullOrWhiteSpace(nested)) return nested;
                 }
             }
-
-            if (token is JArray arr)
-                foreach (var it in arr)
+            if (token is JArray array)
+            {
+                foreach (JToken item in array)
                 {
-                    var nested = Find1cLinkInJson(it);
-                    if (!string.IsNullOrWhiteSpace(nested))
-                        return nested;
+                    string nested = Find1cLinkInJson(item);
+                    if (!string.IsNullOrWhiteSpace(nested)) return nested;
                 }
-
+            }
             return null;
         }
 
         private static void OpenIn1c(string link)
         {
-            if (string.IsNullOrWhiteSpace(link)) return;
-
-            link = Uri.UnescapeDataString(link.Trim());
-
-            string exe = Resolve1cStartExe();
-            string args = "/url \"" + link + "\"";
-            string cmdLine = (string.IsNullOrWhiteSpace(exe) ? "1cestart.exe" : exe) + " " + args;
-
+            link = Uri.UnescapeDataString((link ?? "").Trim());
+            string executable = Resolve1cStartExe();
+            string arguments = "/url \"" + link + "\"";
+            string command = (string.IsNullOrWhiteSpace(executable) ? "1cestart.exe" : executable) +
+                             " " + arguments;
             try
             {
-                if (!string.IsNullOrWhiteSpace(exe) && File.Exists(exe))
+                if (!string.IsNullOrWhiteSpace(executable) && File.Exists(executable))
                 {
                     Process.Start(new ProcessStartInfo
                     {
-                        FileName = exe,
-                        Arguments = args,
+                        FileName = executable,
+                        Arguments = arguments,
                         UseShellExecute = false
                     });
-                    return;
                 }
-
-                Process.Start(new ProcessStartInfo
+                else
                 {
-                    FileName = link,
-                    UseShellExecute = true
-                });
+                    Process.Start(new ProcessStartInfo { FileName = link, UseShellExecute = true });
+                }
             }
             catch
             {
-                try
-                {
-                    Clipboard.SetText(cmdLine);
-                    MessageBox.Show("Не удалось открыть ссылку автоматически.\nКоманда скопирована в буфер:\n" + cmdLine,
-                        "ERP", MessageBoxButton.OK, MessageBoxImage.Information);
-                }
-                catch
-                {
-                    MessageBox.Show("Не удалось открыть ссылку.\nКоманда:\n" + cmdLine,
-                        "ERP", MessageBoxButton.OK, MessageBoxImage.Information);
-                }
+                try { Clipboard.SetText(command); } catch { }
+                MessageBox.Show("Не удалось открыть ссылку автоматически. Команда скопирована:\n" + command,
+                    "ERP", MessageBoxButton.OK, MessageBoxImage.Information);
             }
         }
 
         private static string Resolve1cStartExe()
         {
-            try
-            {
-                string p1 = Environment.ExpandEnvironmentVariables(@"%ProgramFiles%\\1cv8\\common\\1cestart.exe");
-                if (File.Exists(p1)) return p1;
-
-                string p2 = Environment.ExpandEnvironmentVariables(@"%ProgramFiles(x86)%\\1cv8\\common\\1cestart.exe");
-                if (File.Exists(p2)) return p2;
-            }
-            catch { }
-
-            return null;
+            string first = Environment.ExpandEnvironmentVariables(
+                @"%ProgramFiles%\1cv8\common\1cestart.exe");
+            if (File.Exists(first)) return first;
+            string second = Environment.ExpandEnvironmentVariables(
+                @"%ProgramFiles(x86)%\1cv8\common\1cestart.exe");
+            return File.Exists(second) ? second : null;
         }
 
-
-        private class TableErrorVm
+        private sealed class TableErrorVm
         {
-            public int Row { get; set; }
+            public int ExportRow { get; set; }
+            public int SourceRow { get; set; }
+            public string DisplayRow => SourceRow > 0 ? SourceRow.ToString() : ExportRow.ToString();
             public string Msg { get; set; }
         }
     }

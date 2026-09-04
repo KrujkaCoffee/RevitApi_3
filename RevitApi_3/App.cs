@@ -14,12 +14,6 @@ namespace RevitApi_3
 
             string path = Assembly.GetExecutingAssembly().Location;
 
-            var b1 = new PushButtonData(
-                "ErpMappingAll",
-                "🔑 Таблица сопоставления кодов 1C\n(по проекту)",
-                path,
-                "RevitApi_3.ErpMappingAllCommand");
-
             var b2 = new PushButtonData(
                 "ErpMappingActive",
                 "🔑 Таблица сопоставления кодов 1C\n(по выбранной спецификации)",
@@ -32,9 +26,9 @@ namespace RevitApi_3
                 path,
                 "RevitApi_3.ErpExportResourcesActiveCommand");
 
-            panel.AddStackedItems(b1, b2, b3);
-            //panel.AddItem(b2);
-            //panel.AddItem(b3);
+            // Проектное сопоставление убрано из интерфейса: работа всегда
+            // выполняется в контексте явно открытой спецификации.
+            panel.AddStackedItems(b2, b3);
 
             return Result.Succeeded;
         }
