@@ -7,7 +7,7 @@
 	  <PlatformTarget>x64</PlatformTarget>
 <!--   <ImplicitUsings>enable</ImplicitUsings>-->
 	  <LangVersion>8.0</LangVersion>
-    <RevitInstallDir Condition="'$(RevitInstallDir)' == ''">C:\Program Files\Autodesk\Revit 2022</RevitInstallDir>
+    <RevitInstallDir Condition="'$(RevitInstallDir)' == ''">D:\Revit\Revit 2022</RevitInstallDir>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">

@@ -251,7 +251,7 @@ namespace RevitApi_3
                     matches.Add(match);
                 }
             }
-
+            int erpColumn;
             foreach (KeyValuePair<ScheduleMirrorRow, List<ProfileClusterMatch>> pair in rowMatches)
             {
                 ScheduleMirrorRow row = pair.Key;
@@ -260,7 +260,7 @@ namespace RevitApi_3
 
                 if (matches.Count != 1)
                 {
-                    int erpColumn = table.ErpCodeColumnIndex;
+                    erpColumn = table.ErpCodeColumnIndex;
                     string visibleCode = erpColumn >= 0 ? row.GetValue(erpColumn).Trim() : "";
                     row.ErpCode = visibleCode;
                     row.OriginalErpCode = visibleCode;
@@ -276,7 +276,7 @@ namespace RevitApi_3
                 row.MatchInfo = $"Связано элементов Revit: {row.ElementIds.Count}";
             }
 
-            int erpColumn = table.ErpCodeColumnIndex;
+            erpColumn = table.ErpCodeColumnIndex;
             foreach (ScheduleMirrorRow row in table.Rows)
             {
                 if (row.IsResourceRow) continue;
