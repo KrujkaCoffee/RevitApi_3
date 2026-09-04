@@ -11,21 +11,22 @@ namespace RevitApi_3
 {
     internal static class ErpClient
     {
-        // TODO: подставь реальные адреса/методы из 1С
-        private const string BaseUrl = "http://srv-mes:20011";
-        //private const string BaseUrl = "http://pow18-08:8000";
+        private const string DefaultBaseUrl = "http://srv-mes:20011";
+        private const int RequestTimeoutMs = 45000;
+        private static string BaseUrl =>
+            (Environment.GetEnvironmentVariable("REVIT_ERP_BASE_URL") ?? DefaultBaseUrl).TrimEnd('/');
 
-        private static string TreeUrl = $"{BaseUrl}/api/v1/revit/types/";
-        private static string CodesUrl = $"{BaseUrl}/api/v1/revit/nomens";
-        private static string NamesByCodeArrayUrl = $"{BaseUrl}/api/v1/revit/nomens/bycodearray/";
-        private static string TypesUrl = $"{BaseUrl}/api/v1/revit/nomen/kind/form/";
-        private static string UnitsUrl = $"{BaseUrl}/api/v1/revit/nomen/units/form/";
-        private static string CreateUrl = $"{BaseUrl}/api/v1/revit/nomen/create/";
-        private static string ExportResourcesUrl = $"{BaseUrl}/api/v1/revit/resource/create/";
-        private static string ValidateUrl = $"{BaseUrl}/api/v1/revit/resource/validate/";
-        private static string ValidateNomenclatureUrl = $"{BaseUrl}/api/v1/revit/nomen/validate/";
-        private static string StagesUrl = $"{BaseUrl}/api/v1/revit/nomen/stages/form/";
-        private static string LinkCheckUrl = $"{BaseUrl}/api/v1/revit/resource/link_exists/";
+        private static string TreeUrl => $"{BaseUrl}/api/v1/revit/types/";
+        private static string CodesUrl => $"{BaseUrl}/api/v1/revit/nomens";
+        private static string NamesByCodeArrayUrl => $"{BaseUrl}/api/v1/revit/nomens/bycodearray/";
+        private static string TypesUrl => $"{BaseUrl}/api/v1/revit/nomen/kind/form/";
+        private static string UnitsUrl => $"{BaseUrl}/api/v1/revit/nomen/units/form/";
+        private static string CreateUrl => $"{BaseUrl}/api/v1/revit/nomen/create/";
+        private static string ExportResourcesUrl => $"{BaseUrl}/api/v1/revit/resource/create/";
+        private static string ValidateUrl => $"{BaseUrl}/api/v1/revit/resource/validate/";
+        private static string ValidateNomenclatureUrl => $"{BaseUrl}/api/v1/revit/nomen/validate/";
+        private static string StagesUrl => $"{BaseUrl}/api/v1/revit/nomen/stages/form/";
+        private static string LinkCheckUrl => $"{BaseUrl}/api/v1/revit/resource/link_exists/";
 
 
         // DTO для дерева
@@ -123,7 +124,7 @@ namespace RevitApi_3
             var requestObj = new { action = "get_stages" };
             string json = JsonConvert.SerializeObject(requestObj);
             HttpStatusCode code;
-            string response = PostJson(StagesUrl, json, out code); // StagesUrl добавь как const
+            string response = PostJson(StagesUrl, json, out code);
 
             var dtos = JsonConvert.DeserializeObject<List<RefNamedItemDto>>(response)
                        ?? new List<RefNamedItemDto>();
@@ -187,17 +188,83 @@ namespace RevitApi_3
             };
 
             string json = JsonConvert.SerializeObject(requestObj);
-            string response = PostJson(CodesUrl, json, out _);
+            HttpStatusCode status;
+            string response = PostJson(CodesUrl, json, out status);
+            if (status != HttpStatusCode.OK)
+                throw new Exception(
+                    "Загрузка номенклатуры ERP: статус " + (int)status + ", тело: " + response);
 
-            var dtos = JsonConvert.DeserializeObject<List<ErpItemDto>>(response)
-                       ?? new List<ErpItemDto>();
+            return ParseErpItems(response);
+        }
 
-            return dtos.Select(d => new ErpItem
+        /// <summary>
+        /// Глобальный поиск без parent_ref. Контракт намеренно использует тот же
+        /// /nomens endpoint и action-подход, что существующая выборка по дереву.
+        /// </summary>
+        public static List<ErpItem> SearchErpItems(string query, int limit)
+        {
+            query = (query ?? "").Trim();
+            if (query.Length < 2) return new List<ErpItem>();
+            if (limit < 1) limit = 1;
+            if (limit > 500) limit = 500;
+
+            var requestObj = new
             {
-                Code = d.Code,
-                Name = d.Name,
-                Unit = d.Unit
-            }).ToList();
+                action = "search_nomenclature",
+                query = query,
+                limit = limit,
+                offset = 0
+            };
+
+            HttpStatusCode status;
+            string response = PostJson(CodesUrl, JsonConvert.SerializeObject(requestObj), out status);
+            if (status != HttpStatusCode.OK)
+                throw new Exception(
+                    "Глобальный поиск ERP: статус " + (int)status + ", тело: " + response);
+            return ParseErpItems(response);
+        }
+
+        private static List<ErpItem> ParseErpItems(string response)
+        {
+            if (string.IsNullOrWhiteSpace(response)) return new List<ErpItem>();
+
+            JToken token = JToken.Parse(response);
+            JArray array = token as JArray;
+            if (array == null && token is JObject obj)
+            {
+                array = obj["items"] as JArray ?? obj["results"] as JArray ??
+                        obj["data"] as JArray ?? obj["nomenclature"] as JArray;
+            }
+            if (array == null) return new List<ErpItem>();
+
+            var result = new List<ErpItem>();
+            foreach (JToken item in array)
+            {
+                string code = FirstString(item, "Code", "code", "Код");
+                string name = FirstString(item, "Name", "name", "Description", "description", "Наименование");
+                if (string.IsNullOrWhiteSpace(code) && string.IsNullOrWhiteSpace(name)) continue;
+
+                result.Add(new ErpItem
+                {
+                    Code = code,
+                    Name = name,
+                    Unit = FirstString(item, "Unit", "unit", "UnitName", "unit_name", "Единица"),
+                    Extra = FirstString(item, "Extra", "extra", "Article", "article", "Артикул")
+                });
+            }
+            return result;
+        }
+
+        private static string FirstString(JToken token, params string[] names)
+        {
+            if (!(token is JObject obj)) return "";
+            foreach (string name in names)
+            {
+                JToken value = obj[name];
+                if (value != null && value.Type != JTokenType.Null)
+                    return value.ToString().Trim();
+            }
+            return "";
         }
 
 
@@ -222,7 +289,7 @@ namespace RevitApi_3
 
             var requestObj = new
             {
-                action = "get_nomenclature_names_by_codes", // при необходимости согласуй с бэкендом
+                action = "get_nomenclature_names_by_codes",
                 codes = list
             };
 
@@ -385,54 +452,29 @@ namespace RevitApi_3
             string startDate,
             string endDate,
             string authorFullName,
-            IEnumerable<ExportRow> rows,
+            ScheduleMirrorTable table,
             ErpItem outputProduct)
         {
-            if (rows == null)
-                throw new ArgumentNullException(nameof(rows));
+            if (table == null)
+                throw new ArgumentNullException(nameof(table));
             if (outputProduct == null)
                 throw new ArgumentNullException(nameof(outputProduct));
 
-            var rowList = rows.Select(r => new
-            {
-                Stage = r.Stage, // RefKey этапа (из ComboBox)
-                r.FamilyName,
-                r.TypeName,
-                r.DisplayName,
-                r.ErpCode,
-                r.Unit,
-                Quantity = r.QuantityText,
-            }).ToList();
-
-            var payload = new
-            {
-                action = "upload_resource_map",
-                title = title,
-                context = context,
-                creator = authorFullName,
-                start_date = startDate,
-                end_date = endDate,
-                output_product = new
-                {
-                    code = outputProduct.Code,
-                    name = outputProduct.Name,
-                    unit = outputProduct.Unit
-                },
-                rows = rowList
-            };
-
-            string json = JsonConvert.SerializeObject(payload);
+            JObject payload = BuildResourcePayload(
+                title, context, startDate, endDate, authorFullName, table, outputProduct);
+            string json = payload.ToString(Formatting.None);
             HttpStatusCode statusCode;
             string response = PostJson(ExportResourcesUrl, json, out statusCode);
-            if (statusCode != HttpStatusCode.OK) {
-                return null;
-            }
+            if (statusCode != HttpStatusCode.OK && statusCode != HttpStatusCode.Created)
+                throw new Exception(
+                    "ExportResources: неожиданный статус " + (int)statusCode + ", тело: " + response);
             return response;
         }
 
         internal class ResourceTableError
         {
             public int Row { get; set; }
+            public int SourceRow { get; set; }
             public string Msg { get; set; }
         }
 
@@ -455,43 +497,17 @@ namespace RevitApi_3
             string startDate,
             string endDate,
             string authorFullName,
-            IEnumerable<ExportRow> rows,
+            ScheduleMirrorTable table,
             ErpItem outputProduct)
         {
-            if (rows == null)
-                throw new ArgumentNullException(nameof(rows));
+            if (table == null)
+                throw new ArgumentNullException(nameof(table));
             if (outputProduct == null)
                 throw new ArgumentNullException(nameof(outputProduct));
 
-            var rowList = rows.Select(r => new
-            {
-                Stage = r.Stage,
-                r.FamilyName,
-                r.TypeName,
-                r.DisplayName,
-                r.ErpCode,
-                r.Unit,
-                Quantity = r.QuantityText,
-            }).ToList();
-
-            var payload = new
-            {
-                action = "upload_resource_map", // как при экспорте (по твоему требованию)
-                title = title,
-                context = context,
-                creator = authorFullName,
-                start_date = startDate,
-                end_date = endDate,
-                output_product = new
-                {
-                    code = outputProduct.Code,
-                    name = outputProduct.Name,
-                    unit = outputProduct.Unit
-                },
-                rows = rowList
-            };
-
-            string json = JsonConvert.SerializeObject(payload);
+            JObject payload = BuildResourcePayload(
+                title, context, startDate, endDate, authorFullName, table, outputProduct);
+            string json = payload.ToString(Formatting.None);
 
             HttpStatusCode status;
             string body = PostJson(ValidateUrl, json, out status);
@@ -516,17 +532,24 @@ namespace RevitApi_3
                     foreach (var x in te)
                     {
                         int row = 0;
+                        int sourceRow = 0;
                         string msg = "";
 
                         var o = x as JObject;
                         if (o != null)
                         {
                             row = o["row"] != null ? (int)o["row"] : 0;
+                            sourceRow = o["source_row"] != null ? (int)o["source_row"] : 0;
                             msg = (o["msg"] ?? "").ToString();
                         }
 
-                        if (row > 0 && !string.IsNullOrWhiteSpace(msg))
-                            result.TableErrors.Add(new ResourceTableError { Row = row, Msg = msg });
+                        if ((row > 0 || sourceRow > 0) && !string.IsNullOrWhiteSpace(msg))
+                            result.TableErrors.Add(new ResourceTableError
+                            {
+                                Row = row,
+                                SourceRow = sourceRow,
+                                Msg = msg
+                            });
                     }
                 }
             }
@@ -545,6 +568,126 @@ namespace RevitApi_3
                 return result;
 
             throw new Exception("ValidateResources: неожиданный статус " + (int)status + ", тело: " + body);
+        }
+
+        /// <summary>
+        /// Единственный конструктор payload для validate/create. В contract v2
+        /// передаётся полный снимок таблицы и одновременно сохраняются legacy-поля
+        /// rows, чтобы сервер можно было обновлять поэтапно.
+        /// </summary>
+        private static JObject BuildResourcePayload(
+            string title,
+            string context,
+            string startDate,
+            string endDate,
+            string authorFullName,
+            ScheduleMirrorTable table,
+            ErpItem outputProduct)
+        {
+            var columns = new JArray(table.Columns
+                .OrderBy(x => x.Index)
+                .Select(column => JObject.FromObject(new
+                {
+                    order = column.Index,
+                    key = column.Key,
+                    header = column.Header,
+                    parameter_id = column.ParameterId,
+                    parameter_guid = column.ParameterGuid,
+                    field_type = column.FieldType,
+                    is_calculated = column.IsCalculated,
+                    is_combined = column.IsCombined,
+                    is_erp_code = column.IsErpCode,
+                    is_quantity = column.IsQuantity,
+                    is_unit = column.IsUnit
+                })));
+
+            var bodyRows = new JArray();
+            foreach (ScheduleMirrorRow row in table.Rows)
+            {
+                bodyRows.Add(new JObject
+                {
+                    ["source_row"] = row.SourceRowNumber,
+                    ["is_resource_row"] = row.IsResourceRow,
+                    ["cells"] = JArray.FromObject(row.Values)
+                });
+            }
+
+            var resourceRows = new JArray();
+            int exportRow = 0;
+            foreach (ScheduleMirrorRow row in table.ResourceRows)
+            {
+                exportRow++;
+                JObject values = BuildValuesObject(table, row);
+                resourceRows.Add(new JObject
+                {
+                    ["row"] = exportRow,
+                    ["source_row"] = row.SourceRowNumber,
+                    ["stage"] = row.Stage ?? "",
+                    ["Stage"] = row.Stage ?? "",
+                    ["erp_code"] = row.ErpCode ?? "",
+                    ["ErpCode"] = row.ErpCode ?? "",
+                    ["unit"] = FindValue(table, row, "единица измерения", "ед. изм", "unit"),
+                    ["Unit"] = FindValue(table, row, "единица измерения", "ед. изм", "unit"),
+                    ["quantity"] = FindValue(table, row, "количество", "кол-во", "quantity", "qty", "count"),
+                    ["Quantity"] = FindValue(table, row, "количество", "кол-во", "quantity", "qty", "count"),
+                    ["FamilyName"] = FindValue(table, row, "семейство", "family"),
+                    ["TypeName"] = FindValue(table, row, "тип", "type"),
+                    ["DisplayName"] = FindValue(table, row, "наименование", "name"),
+                    ["values"] = values,
+                    ["cells"] = JArray.FromObject(row.Values),
+                    ["element_ids"] = new JArray(row.ElementIds)
+                });
+            }
+
+            return new JObject
+            {
+                ["action"] = "upload_resource_map",
+                ["contract_version"] = 2,
+                ["title"] = title ?? "",
+                ["context"] = context ?? "",
+                ["creator"] = authorFullName ?? "",
+                ["start_date"] = startDate ?? "",
+                ["end_date"] = endDate ?? "",
+                ["output_product"] = JObject.FromObject(new
+                {
+                    code = outputProduct.Code,
+                    name = outputProduct.Name,
+                    unit = outputProduct.Unit
+                }),
+                ["schedule"] = new JObject
+                {
+                    ["element_id"] = table.ScheduleElementId,
+                    ["name"] = table.ScheduleName ?? "",
+                    ["field_mapping_exact"] = table.HasExactFieldMapping,
+                    ["diagnostic"] = table.Diagnostic ?? "",
+                    ["header_rows"] = JArray.FromObject(table.HeaderRows),
+                    ["columns"] = columns,
+                    ["body_rows"] = bodyRows
+                },
+                ["rows"] = resourceRows
+            };
+        }
+
+        private static JObject BuildValuesObject(ScheduleMirrorTable table, ScheduleMirrorRow row)
+        {
+            var result = new JObject();
+            foreach (ScheduleMirrorColumn column in table.Columns.OrderBy(x => x.Index))
+                result[column.Key] = row.GetValue(column.Index);
+            return result;
+        }
+
+        private static string FindValue(
+            ScheduleMirrorTable table,
+            ScheduleMirrorRow row,
+            params string[] tokens)
+        {
+            foreach (ScheduleMirrorColumn column in table.Columns)
+            {
+                string header = (column.Header ?? "").ToLowerInvariant();
+                if (tokens.Any(token => header.Contains((token ?? "").ToLowerInvariant())))
+                    return row.GetValue(column.Index);
+            }
+            return "";
         }
 
 
@@ -592,7 +735,8 @@ namespace RevitApi_3
             var request = (HttpWebRequest)WebRequest.Create(url);
             request.Method = "POST";
             request.ContentType = "application/json; charset=utf-8";
-            request.Timeout = 170000;
+            request.Timeout = RequestTimeoutMs;
+            request.ReadWriteTimeout = RequestTimeoutMs;
 
             byte[] data = Encoding.UTF8.GetBytes(json);
             request.ContentLength = data.Length;

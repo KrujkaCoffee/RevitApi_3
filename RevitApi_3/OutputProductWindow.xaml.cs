@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -20,6 +21,8 @@ namespace RevitApi_3
 
         private string _selectedKindRefKey;
         private string _selectedKindName;
+        private int _loadVersion;
+        private bool _isBusy;
 
         public ErpItem SelectedProduct { get; private set; }
 
@@ -95,7 +98,7 @@ namespace RevitApi_3
             }
         }
 
-        private void Tree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
+        private async void Tree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
         {
             var node = Tree.SelectedItem as ErpTreeNode;
             if (node == null)
@@ -120,9 +123,13 @@ namespace RevitApi_3
             if (_mode == OutputProductWindowMode.CreateOnly)
                 return;
 
+            int loadVersion = ++_loadVersion;
+            SetBusy(true);
             try
             {
-                _codesFull = ErpClient.LoadErpItems(node.RefKey);
+                List<ErpItem> loaded = await Task.Run(() => ErpClient.LoadErpItems(node.RefKey));
+                if (loadVersion != _loadVersion) return;
+                _codesFull = loaded ?? new List<ErpItem>();
             }
             catch (Exception ex)
             {
@@ -131,7 +138,14 @@ namespace RevitApi_3
                 _codesFull = new List<ErpItem>();
             }
 
-            RebuildCodesView();
+            finally
+            {
+                if (loadVersion == _loadVersion)
+                {
+                    RebuildCodesView();
+                    SetBusy(false);
+                }
+            }
         }
 
         private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
@@ -178,10 +192,9 @@ namespace RevitApi_3
             SelectedProduct = erp;
             SelectedProductLabel.Text = erp.Name + " (" + erp.Code + ")";
             DialogResult = true;
-            Close();
         }
 
-        private void BtnCreate_Click(object sender, RoutedEventArgs e)
+        private async void BtnCreate_Click(object sender, RoutedEventArgs e)
         {
             // если мы в режиме подбора — по клику "Создать" на вкладке Подбор:
             // забираем имя выбранной позиции и переходим на форму (без создания)
@@ -221,46 +234,43 @@ namespace RevitApi_3
             string name = (NameBox.Text ?? "").Trim();
             string article = (ArticleBox.Text ?? "").Trim();
 
-            var errors = ErpClient.ValidateNomenclature(
-                _selectedKindRefKey,
-                t != null ? t.RefKey : null,
-                u2 != null ? u2.RefKey : null,
-                name,
-                article);
-
-            if (errors == null || errors.Count == 0)
+            string kindRef = _selectedKindRefKey;
+            string typeRef = t?.RefKey;
+            string unitRef = u2?.RefKey;
+            SetBusy(true);
+            try
             {
-                try
+                Dictionary<string, string> errors = await Task.Run(() =>
+                    ErpClient.ValidateNomenclature(kindRef, typeRef, unitRef, name, article));
+
+                if (errors == null || errors.Count == 0)
                 {
-                    var created = ErpClient.CreateNomenclature(
-                        _selectedKindRefKey,
-                        t != null ? t.RefKey : null,
-                        u2 != null ? u2.RefKey : null,
-                        name,
-                        article);
+                    ErpItem created = await Task.Run(() =>
+                        ErpClient.CreateNomenclature(kindRef, typeRef, unitRef, name, article));
 
                     SelectedProduct = created;
                     SelectedProductLabel.Text = created.Name + " (" + created.Code + ")";
                     DialogResult = true;
-                    Close();
+                    return;
                 }
-                catch (ErpValidationException vex)
-                {
-                    ApplyValidationErrors(vex.Errors);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("Ошибка при создании номенклатуры: " + ex.Message,
-                        "ERP", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
-            }
-            else {
                 ApplySimpleValidationErrors(errors);
             }
-
+            catch (ErpValidationException vex)
+            {
+                ApplyValidationErrors(vex.Errors);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Ошибка при создании номенклатуры: " + ex.Message,
+                    "ERP", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                SetBusy(false);
+            }
         }
 
-        private void BtnValidate_Click(object sender, RoutedEventArgs e)
+        private async void BtnValidate_Click(object sender, RoutedEventArgs e)
         {
             Tabs.SelectedItem = TabCreate;
             ClearErrors();
@@ -278,14 +288,14 @@ namespace RevitApi_3
             string name = (NameBox.Text ?? "").Trim();
             string article = (ArticleBox.Text ?? "").Trim();
 
+            string kindRef = _selectedKindRefKey;
+            string typeRef = t?.RefKey;
+            string unitRef = u2?.RefKey;
+            SetBusy(true);
             try
             {
-                var errors = ErpClient.ValidateNomenclature(
-                    _selectedKindRefKey,
-                    t != null ? t.RefKey : null,
-                    u2 != null ? u2.RefKey : null,
-                    name,
-                    article);
+                Dictionary<string, string> errors = await Task.Run(() =>
+                    ErpClient.ValidateNomenclature(kindRef, typeRef, unitRef, name, article));
 
                 if (errors == null || errors.Count == 0)
                 {
@@ -301,12 +311,27 @@ namespace RevitApi_3
                 MessageBox.Show("Ошибка проверки: " + ex.Message, "ERP",
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
+            finally
+            {
+                SetBusy(false);
+            }
         }
 
         private void BtnCancel_Click(object sender, RoutedEventArgs e)
         {
+            if (_isBusy) return;
             DialogResult = false;
-            Close();
+        }
+
+        private void SetBusy(bool busy)
+        {
+            _isBusy = busy;
+            Tree.IsEnabled = !busy;
+            BtnOk.IsEnabled = !busy;
+            BtnCreate.IsEnabled = !busy;
+            BtnValidate.IsEnabled = !busy;
+            CodesGrid.IsEnabled = !busy;
+            Tabs.IsEnabled = !busy;
         }
 
         private void ClearErrors()

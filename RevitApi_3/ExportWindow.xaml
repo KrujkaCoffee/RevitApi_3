@@ -2,9 +2,9 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Выгрузка ресурсной в ERP"
-        Height="650" Width="1200"
+        Height="720" Width="1400" MinHeight="590" MinWidth="1000"
         WindowStartupLocation="CenterOwner">
-    <Grid x:Name="RootGrid" Margin="8">
+    <Grid Margin="8">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
@@ -12,76 +12,64 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Верх -->
         <StackPanel Grid.Row="0" Margin="0,0,0,8">
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                <TextBlock Text="Наименование ресурсной:" VerticalAlignment="Center"/>
-                <TextBox x:Name="TitleBox" Width="520" Margin="6,0,0,0"/>
-                <TextBlock x:Name="ContextLabel" Margin="12,0,0,0"
-                           VerticalAlignment="Center"
-                           TextWrapping="Wrap"/>
-            </StackPanel>
+            <DockPanel Margin="0,0,0,8">
+                <TextBlock DockPanel.Dock="Left" Text="Наименование ресурсной:"
+                           VerticalAlignment="Center"/>
+                <TextBox x:Name="TitleBox" Width="500" Margin="6,0,12,0"/>
+                <TextBlock x:Name="ContextLabel" VerticalAlignment="Center" TextWrapping="Wrap"/>
+            </DockPanel>
 
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
                 <TextBlock Text="Автор:" VerticalAlignment="Center"/>
                 <TextBox IsEnabled="False" x:Name="AuthorBox" Width="240" Margin="6,0,12,0"/>
-
                 <TextBlock Text="Дата начала:" VerticalAlignment="Center"/>
                 <DatePicker x:Name="StartDatePicker" Width="140" Margin="6,0,12,0"/>
-
                 <TextBlock Text="Дата конца:" VerticalAlignment="Center"/>
                 <DatePicker x:Name="EndDatePicker" Width="140" Margin="6,0,0,0"/>
             </StackPanel>
 
-            <TextBlock x:Name="FieldErrorsText"
-                       Foreground="Red"
-                       TextWrapping="Wrap"
-                       Margin="0,0,0,6"/>
+            <TextBlock x:Name="FieldErrorsText" Foreground="Red" TextWrapping="Wrap"/>
+            <TextBlock x:Name="DiagnosticText" Foreground="DarkOrange" TextWrapping="Wrap"/>
 
-
-            <GroupBox Header="Выпускаемое изделие">
+            <GroupBox Header="Выпускаемое изделие" Margin="0,5,0,0">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="Наименование:" VerticalAlignment="Center"/>
                     <TextBlock x:Name="OutputNameText" Margin="4,0,16,0" VerticalAlignment="Center"/>
-
                     <TextBlock Text="Код:" VerticalAlignment="Center"/>
                     <TextBlock x:Name="OutputCodeText" Margin="4,0,16,0" VerticalAlignment="Center"/>
-
-                    <Button x:Name="BtnPickOutput"
-                            Content="🔍 Подобрать / создать"
-                            Margin="8,0,0,0"
-                            Padding="6,2"
+                    <Button x:Name="BtnPickOutput" Content="Подобрать / создать"
+                            IsEnabled="False" Margin="8,0,0,0" Padding="7,2"
                             Click="BtnPickOutput_Click"/>
                 </StackPanel>
-                
             </GroupBox>
-            <TextBlock x:Name="SuccessText" VerticalAlignment="Center"/>
-            <TextBlock x:Name="Open1cLinkBlock"
-           Margin="8,0,0,0"
-           VerticalAlignment="Center"
-           Foreground="Blue"
-           TextDecorations="Underline"
-           Cursor="Hand"
-           Visibility="Collapsed"
-           MouseLeftButtonUp="Open1cLinkBlock_MouseLeftButtonUp">Открыть в 1С</TextBlock>
 
+            <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
+                <TextBlock x:Name="ServiceStatusText" Foreground="DimGray" VerticalAlignment="Center"/>
+                <TextBlock x:Name="SuccessText" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                <TextBlock x:Name="Open1cLinkBlock" Margin="12,0,0,0"
+                           VerticalAlignment="Center" Foreground="Blue"
+                           TextDecorations="Underline" Cursor="Hand" Visibility="Collapsed"
+                           MouseLeftButtonUp="Open1cLinkBlock_MouseLeftButtonUp">Открыть в 1С</TextBlock>
+            </StackPanel>
         </StackPanel>
 
-        <!-- Таблица -->
-        <GroupBox Grid.Row="1" Header="Предпросмотр перед выгрузкой">
-            <DataGrid x:Name="ExportGrid"
-                      AutoGenerateColumns="False"
-                      IsReadOnly="False"
-                      SelectionMode="Single"
-                      HeadersVisibility="All">
+        <GroupBox Grid.Row="1" Header="Предпросмотр активной спецификации (ячейки Revit 1:1)">
+            <DataGrid x:Name="ExportGrid" AutoGenerateColumns="False" IsReadOnly="False"
+                      SelectionMode="Single" SelectionUnit="FullRow" CanUserAddRows="False"
+                      CanUserSortColumns="False" CanUserReorderColumns="False"
+                      HeadersVisibility="All" EnableRowVirtualization="True"
+                      EnableColumnVirtualization="True" LoadingRow="ExportGrid_LoadingRow"
+                      BeginningEdit="ExportGrid_BeginningEdit">
                 <DataGrid.RowStyle>
                     <Style TargetType="DataGridRow">
+                        <Setter Property="ToolTip" Value="{Binding MatchInfo}"/>
                         <Style.Triggers>
-                            <DataTrigger Binding="{Binding ErpCode}" Value="">
+                            <DataTrigger Binding="{Binding HasMissingErpCode}" Value="True">
                                 <Setter Property="Background" Value="LightCoral"/>
                             </DataTrigger>
-                            <DataTrigger Binding="{Binding ErpCode}" Value="-">
-                                <Setter Property="Background" Value="LightCoral"/>
+                            <DataTrigger Binding="{Binding IsResourceRow}" Value="False">
+                                <Setter Property="Foreground" Value="Gray"/>
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>
@@ -89,43 +77,24 @@
             </DataGrid>
         </GroupBox>
 
-        <!-- Мини-таблица ошибок -->
-        <Expander Grid.Row="2"
-                  x:Name="ErrorsExpander"
-                  Header="Ошибки табличной части"
-                  IsExpanded="True"
-                  Visibility="Collapsed"
-                  Margin="0,8,0,0">
-            <DataGrid x:Name="ErrorsGrid"
-                      AutoGenerateColumns="False"
-                      IsReadOnly="True"
-                      CanUserAddRows="False"
-                      SelectionMode="Single"
+        <Expander Grid.Row="2" x:Name="ErrorsExpander" Header="Ошибки табличной части"
+                  IsExpanded="True" Visibility="Collapsed" Margin="0,8,0,0">
+            <DataGrid x:Name="ErrorsGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                      CanUserAddRows="False" SelectionMode="Single"
                       SelectionChanged="ErrorsGrid_SelectionChanged">
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="Строка" Binding="{Binding Row}" Width="90"/>
+                    <DataGridTextColumn Header="Строка Revit" Binding="{Binding DisplayRow}" Width="110"/>
                     <DataGridTextColumn Header="Ошибка" Binding="{Binding Msg}" Width="*"/>
                 </DataGrid.Columns>
             </DataGrid>
         </Expander>
 
-        <!-- Низ -->
-        <StackPanel Grid.Row="3"
-                    Orientation="Horizontal"
-                    HorizontalAlignment="Right"
-                    Margin="0,8,0,0">
-            <Button x:Name="BtnCheck"
-                    Content="✅ Проверить"
-                    Width="120" Margin="0,0,8,0"
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+            <Button x:Name="BtnCheck" Content="Проверить" Width="120" Margin="0,0,8,0"
                     Click="BtnCheck_Click"/>
-            <Button x:Name="BtnExport"
-                    Content="📤 Выгрузить в ERP"
-                    Width="170" Margin="0,0,8,0"
+            <Button x:Name="BtnExport" Content="Выгрузить в ERP" Width="165" Margin="0,0,8,0"
                     Click="BtnExport_Click"/>
-            <Button x:Name="BtnClose"
-                    Content="✖ Закрыть"
-                    Width="90"
-                    Click="BtnClose_Click"/>
+            <Button Content="Закрыть" Width="90" Click="BtnClose_Click"/>
         </StackPanel>
     </Grid>
 </Window>
