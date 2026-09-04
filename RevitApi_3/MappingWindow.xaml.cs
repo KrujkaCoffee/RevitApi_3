@@ -12,7 +12,31 @@ namespace RevitApi_3
     public partial class MappingWindow : Window
     {
         private readonly List<RevitItem> _revitItemsFull;
-        private List<RevitItem> _revitView;
+        private List<RevitRowVm> _revitView;
+
+
+        // кеш: код 1С -> наименование (для колонки "Наименование номенклатуры в 1С")
+        private readonly Dictionary<string, string> _erpNameByCode =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        private class RevitRowVm
+        {
+            public RevitItem Source { get; }
+            public string FamilyName => Source.FamilyName;
+            public string TypeName => Source.TypeName;
+            public string DisplayName => Source.DisplayName;
+
+            public string ErpCode
+            {
+                get => Source.ErpCode;
+                set => Source.ErpCode = value;
+            }
+
+            // По умолчанию пусто, заполняется из REST по коду
+            public string ErpName1c { get; set; } = "";
+
+            public RevitRowVm(RevitItem src) { Source = src; }
+        }
 
         private readonly List<ErpTreeNode> _erpTreeRoots;
         private List<ErpItem> _erpItemsFull = new List<ErpItem>();
@@ -29,12 +53,27 @@ namespace RevitApi_3
         public MappingWindow(List<RevitItem> items,
                              List<ErpTreeNode> treeRoots,
                              string contextInfo)
+            : this(items, treeRoots, contextInfo, showCreateButton: false)
+        {
+        }
+
+        public MappingWindow(List<RevitItem> items,
+                             List<ErpTreeNode> treeRoots,
+                             string contextInfo,
+                             bool showCreateButton)
         {
             InitializeComponent();
 
             _revitItemsFull = items ?? new List<RevitItem>();
             _erpTreeRoots = treeRoots ?? new List<ErpTreeNode>();
             _contextInfo = contextInfo ?? "";
+            // Кнопка "Создать" доступна только при вызове из экспорта
+            if (BtnCreateNomenclature != null)
+                BtnCreateNomenclature.Visibility = showCreateButton ? Visibility.Visible : Visibility.Collapsed;
+
+            // Перед заполнением таблицы - подтягиваем названия номенклатур по уже заданным кодам (пакетно)
+            PrefetchErpNamesForCodes();
+
 
             WpfGrid grid = RootGrid;
 
@@ -54,6 +93,61 @@ namespace RevitApi_3
         {
             if (string.IsNullOrEmpty(s)) return "";
             return s.ToLowerInvariant().Trim();
+        }
+
+
+        private void PrefetchErpNamesForCodes()
+        {
+            try
+            {
+                var codes = _revitItemsFull
+                    .Select(x => (x.ErpCode ?? "").Trim())
+                    .Where(c => !string.IsNullOrWhiteSpace(c) && c != "-")
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (codes.Count == 0) return;
+
+                var map = ErpClient.LoadNomenclatureNamesByCodes(codes);
+                if (map == null) return;
+
+                foreach (var kv in map)
+                {
+                    if (string.IsNullOrWhiteSpace(kv.Key)) continue;
+                    _erpNameByCode[kv.Key.Trim()] = kv.Value ?? "";
+                }
+            }
+            catch
+            {
+                // важно: если сервис недоступен — не ломаем окно, просто оставляем колонку пустой
+            }
+        }
+
+        private void EnsureErpNamesForCodes(IEnumerable<string> codes)
+        {
+            try
+            {
+                var need = (codes ?? Enumerable.Empty<string>())
+                    .Select(c => (c ?? "").Trim())
+                    .Where(c => !string.IsNullOrWhiteSpace(c) && c != "-" && !_erpNameByCode.ContainsKey(c))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (need.Count == 0) return;
+
+                var map = ErpClient.LoadNomenclatureNamesByCodes(need);
+                if (map == null) return;
+
+                foreach (var kv in map)
+                {
+                    if (string.IsNullOrWhiteSpace(kv.Key)) continue;
+                    _erpNameByCode[kv.Key.Trim()] = kv.Value ?? "";
+                }
+            }
+            catch
+            {
+                // не удаляем ничего при ошибке сети
+            }
         }
 
         // ===== Revit: фильтр "только без кода" =====
@@ -83,7 +177,8 @@ namespace RevitApi_3
 
             // (улучшение UX) если в дереве справа что-то выбрано — передадим как предустановку
             //ErpTreeNode selectedNode = ErpTree.SelectedItem as ErpTreeNode;
-            //var first = RevitGrid.SelectedItems.Count > 0 ? RevitGrid.SelectedItems[0] as RevitItem : null;
+            //var firstVm = RevitGrid.SelectedItems.Count > 0 ? RevitGrid.SelectedItems[0] as RevitRowVm : null;
+            //var first = firstVm != null ? firstVm.Source : (RevitGrid.SelectedItems.Count > 0 ? RevitGrid.SelectedItems[0] as RevitItem : null);
             //var win = new OutputProductWindow(
             //    _erpTreeRoots,
             //    _cachedTypes,
@@ -95,7 +190,8 @@ namespace RevitApi_3
 
             //
             var selectedNode = ErpTree.SelectedItem as ErpTreeNode;
-            var first = RevitGrid.SelectedItems.Count > 0 ? RevitGrid.SelectedItems[0] as RevitItem : null;
+            var firstVm = RevitGrid.SelectedItems.Count > 0 ? RevitGrid.SelectedItems[0] as RevitRowVm : null;
+            var first = firstVm != null ? firstVm.Source : (RevitGrid.SelectedItems.Count > 0 ? RevitGrid.SelectedItems[0] as RevitItem : null);
 
             var win = new OutputProductWindow(
                 _erpTreeRoots,
@@ -115,6 +211,8 @@ namespace RevitApi_3
             {
                 string createdCode = win.SelectedProduct.Code;
 
+                EnsureErpNamesForCodes(new[] { createdCode });
+
                 foreach (var obj in RevitGrid.SelectedItems)
                 {
                     var ri = obj as RevitItem;
@@ -130,7 +228,7 @@ namespace RevitApi_3
         {
             bool onlyWithout = (ChkOnlyWithoutCode != null && ChkOnlyWithoutCode.IsChecked == true);
 
-            _revitView = new List<RevitItem>();
+            _revitView = new List<RevitRowVm>();
             foreach (var ri in _revitItemsFull)
             {
                 if (onlyWithout)
@@ -138,7 +236,14 @@ namespace RevitApi_3
                     if (!string.IsNullOrEmpty(ri.ErpCode) && ri.ErpCode != "-")
                         continue;
                 }
-                _revitView.Add(ri);
+
+                var vm = new RevitRowVm(ri);
+                if (!string.IsNullOrWhiteSpace(ri.ErpCode) && ri.ErpCode != "-" &&
+                    _erpNameByCode.TryGetValue(ri.ErpCode.Trim(), out var n))
+                {
+                    vm.ErpName1c = n ?? "";
+                }
+                _revitView.Add(vm);
             }
 
             RevitGrid.ItemsSource = _revitView;
@@ -234,6 +339,7 @@ namespace RevitApi_3
                 }
             }
 
+            EnsureErpNamesForCodes(_revitItemsFull.Select(x => x.ErpCode));
             RebuildRevitView();
             MessageBox.Show("Автоматически сопоставлено: " + count, "ERP");
         }
@@ -253,10 +359,11 @@ namespace RevitApi_3
             var selected = new List<RevitItem>();
             foreach (var obj in RevitGrid.SelectedItems)
             {
-                if (obj is RevitItem ri)
+                if (obj is RevitRowVm vm)
+                    selected.Add(vm.Source);
+                else if (obj is RevitItem ri)
                     selected.Add(ri);
             }
-
             if (selected.Count == 0)
             {
                 MessageBox.Show("Выберите одну или несколько строк слева (Revit), которые нужно связать с кодом 1C.", "ERP");
@@ -266,6 +373,8 @@ namespace RevitApi_3
             foreach (var ri in selected)
                 ri.ErpCode = erp.Code;
 
+            // дозапросим название по коду и обновим колонку
+            EnsureErpNamesForCodes(new[] { erp.Code });
             RebuildRevitView();
         }
 

@@ -16,19 +16,19 @@ namespace RevitApi_3
 
             var b1 = new PushButtonData(
                 "ErpMappingAll",
-                "🔑 Сопоставление кодов 1C\n(проекта)",
+                "🔑 Таблица сопоставления кодов 1C\n(по проекту)",
                 path,
                 "RevitApi_3.ErpMappingAllCommand");
 
             var b2 = new PushButtonData(
                 "ErpMappingActive",
-                "🔑  Сопоставление кодов 1C\n(активной спецификации)",
+                "🔑 Таблица сопоставления кодов 1C\n(по выбранной спецификации)",
                 path,
                 "RevitApi_3.ErpMappingActiveCommand");
 
             var b3 = new PushButtonData(
                 "ErpExportResourcesActive",
-                "📤 Выгрузка спецификации\n(активной спецификации)",
+                "📤 Выгрузка спецификации\n(выбранной спецификации)",
                 path,
                 "RevitApi_3.ErpExportResourcesActiveCommand");
 

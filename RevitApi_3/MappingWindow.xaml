@@ -40,6 +40,7 @@
                     <DataGridTextColumn Header="Тип" Binding="{Binding TypeName}" Width="*"/>
                     <DataGridTextColumn Header="Наименование" Binding="{Binding DisplayName}" Width="2*"/>
                     <DataGridTextColumn Header="Код 1C-ERP" Binding="{Binding ErpCode}" Width="*"/>
+                    <DataGridTextColumn Header="Наименование&#10;номенклатуры в 1С" Binding="{Binding ErpName1c}" Width="2*"/>
                 </DataGrid.Columns>
                 <DataGrid.RowStyle>
                     <Style TargetType="DataGridRow">
@@ -118,11 +119,13 @@
             <Button x:Name="BtnCreateNomenclature"
         Content="➕ Создать"
         Width="110" Margin="0,0,8,0"
-        Click="BtnCreateNomenclature_Click"/>
+        Click="BtnCreateNomenclature_Click"
+        Visibility="Collapsed"/>
 
             <Button x:Name="BtnAutoMap"
                     Content="🔁 Авто по имени"
                     Width="140" Margin="0,0,8,0"
+                    Visibility="Hidden"
                     Click="BtnAutoMap_Click"/>
             <Button x:Name="BtnSave"
                     Content="💾 Записать в модель"

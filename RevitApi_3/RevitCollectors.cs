@@ -17,8 +17,10 @@ namespace RevitApi_3
             {
                 var vs = el as ViewSchedule;
                 if (vs == null) continue;
-                if (!vs.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                    continue;
+
+                if (vs.IsTemplate) continue;                 // ВАЖНО: шаблоны
+                //if (!vs.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    //continue;
 
                 result.Add(vs);
             }

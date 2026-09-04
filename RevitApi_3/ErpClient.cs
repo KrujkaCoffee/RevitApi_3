@@ -17,6 +17,7 @@ namespace RevitApi_3
 
         private static string TreeUrl = $"{BaseUrl}/api/v1/revit/types/";
         private static string CodesUrl = $"{BaseUrl}/api/v1/revit/nomens";
+        private static string NamesByCodeArrayUrl = $"{BaseUrl}/api/v1/revit/nomens/bycodearray/";
         private static string TypesUrl = $"{BaseUrl}/api/v1/revit/nomen/kind/form/";
         private static string UnitsUrl = $"{BaseUrl}/api/v1/revit/nomen/units/form/";
         private static string CreateUrl = $"{BaseUrl}/api/v1/revit/nomen/create/";
@@ -199,6 +200,87 @@ namespace RevitApi_3
             }).ToList();
         }
 
+
+        /// <summary>
+        /// Пакетно получить наименования номенклатур по массиву кодов 1C-ERP.
+        /// Ожидаемый ответ (пример):
+        /// {
+        ///   "00-01": { "name": "..." },
+        ///   "00-02": { "name": "..." }
+        /// }
+        /// </summary>
+        public static Dictionary<string, string> LoadNomenclatureNamesByCodes(IEnumerable<string> codes)
+        {
+            var list = (codes ?? Enumerable.Empty<string>())
+                .Select(x => (x ?? "").Trim())
+                .Where(x => !string.IsNullOrWhiteSpace(x) && x != "-")
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (list.Count == 0) return result;
+
+            var requestObj = new
+            {
+                action = "get_nomenclature_names_by_codes", // при необходимости согласуй с бэкендом
+                codes = list
+            };
+
+            string json = JsonConvert.SerializeObject(requestObj);
+
+            string response = PostJson(NamesByCodeArrayUrl, json, out _);
+
+            try
+            {
+                var jo = JObject.Parse(response);
+                foreach (var p in jo.Properties())
+                {
+                    string code = (p.Name ?? "").Trim();
+                    if (string.IsNullOrWhiteSpace(code)) continue;
+
+                    string name = "";
+                    if (p.Value is JObject o)
+                    {
+                        name = (o["name"] ?? o["Name"] ?? o["description"] ?? o["Description"])?.ToString() ?? "";
+                    }
+                    else if (p.Value != null)
+                    {
+                        // иногда могут вернуть просто строку
+                        name = p.Value.ToString();
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(name))
+                        result[code] = name;
+                }
+
+                return result;
+            }
+            catch
+            {
+                // 2) альтернативный формат: массив [{code:"", name:""}]
+                try
+                {
+                    var arr = JArray.Parse(response);
+                    foreach (var it in arr)
+                    {
+                        if (it is JObject o)
+                        {
+                            string code = (o["code"] ?? o["Code"])?.ToString()?.Trim() ?? "";
+                            string name = (o["name"] ?? o["Name"] ?? o["description"] ?? o["Description"])?.ToString() ?? "";
+                            if (!string.IsNullOrWhiteSpace(code) && !string.IsNullOrWhiteSpace(name))
+                                result[code] = name;
+                        }
+                    }
+                }
+                catch
+                {
+                    // игнор — вернём пустой/частичный result
+                }
+
+                return result;
+            }
+        }
+
         /// <summary>Типы номенклатуры.</summary>
         public static List<RefNamedItem> LoadNomenclatureTypes()
         {
@@ -268,7 +350,6 @@ namespace RevitApi_3
 
             if (statusCode == HttpStatusCode.Created) // 201
             {
-                // предполагаем, что вернётся { Code, Name, ... }
                 var dto = JsonConvert.DeserializeObject<ErpItemDto>(response);
                 if (dto == null)
                     throw new Exception("Пустой ответ от сервера при создании номенклатуры.");
@@ -511,6 +592,7 @@ namespace RevitApi_3
             var request = (HttpWebRequest)WebRequest.Create(url);
             request.Method = "POST";
             request.ContentType = "application/json; charset=utf-8";
+            request.Timeout = 170000;
 
             byte[] data = Encoding.UTF8.GetBytes(json);
             request.ContentLength = data.Length;
