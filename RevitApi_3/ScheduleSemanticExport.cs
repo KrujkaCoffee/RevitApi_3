@@ -17,9 +17,27 @@ namespace RevitApi_3
             if (doc == null || instance == null || field == null) return "";
             if (SafeIsCalculated(field) || SafeIsCombined(field)) return "";
 
-            Parameter parameter = ResolveParameter(doc, instance, type, field);
-            if (parameter == null) return ReadSpecialField(instance, type, field);
+            Element preferred = field.FieldType == ScheduleFieldType.ElementType
+                ? type ?? instance
+                : instance;
+            Element fallback = ReferenceEquals(preferred, instance) ? type : instance;
 
+            string value = ReadParameter(doc, ResolveParameterOnElement(doc, preferred, field));
+            if (!string.IsNullOrWhiteSpace(value)) return value;
+
+            // Наличие пустого параметра на предпочтительном источнике не
+            // означает, что значение отсутствует: в клиентских семействах
+            // одноимённое shared-поле нередко заполнено на типе, а экземплярное
+            // определение остаётся пустым (и наоборот).
+            value = ReadParameter(doc, ResolveParameterOnElement(doc, fallback, field));
+            return !string.IsNullOrWhiteSpace(value)
+                ? value
+                : ReadSpecialField(instance, type, field);
+        }
+
+        private static string ReadParameter(Document doc, Parameter parameter)
+        {
+            if (parameter == null) return "";
             try
             {
                 string formatted = parameter.AsValueString();
@@ -54,27 +72,6 @@ namespace RevitApi_3
             }
         }
 
-        private static Parameter ResolveParameter(
-            Document doc,
-            Element instance,
-            Element type,
-            ScheduleField field)
-        {
-            Element preferred = field.FieldType == ScheduleFieldType.ElementType
-                ? type ?? instance
-                : instance;
-            Element fallback = ReferenceEquals(preferred, instance) ? type : instance;
-
-            Parameter result = ResolveParameterOnElement(doc, preferred, field);
-            if (result != null) return result;
-
-            // У общих параметров в клиентских шаблонах встречаются как
-            // экземплярные, так и типовые привязки. FieldType не во всех таких
-            // спецификациях надёжно отражает место хранения, поэтому второй
-            // источник проверяется явно.
-            return ResolveParameterOnElement(doc, fallback, field);
-        }
-
         private static Parameter ResolveParameterOnElement(
             Document doc,
             Element source,
@@ -91,6 +88,12 @@ namespace RevitApi_3
                         return source.get_Parameter((BuiltInParameter)parameterId.IntegerValue);
 
                     ParameterElement parameterElement = doc.GetElement(parameterId) as ParameterElement;
+                    SharedParameterElement shared = parameterElement as SharedParameterElement;
+                    Parameter byGuid = shared == null
+                        ? null
+                        : source.get_Parameter(shared.GuidValue);
+                    if (byGuid != null) return byGuid;
+
                     Definition definition = parameterElement?.GetDefinition();
                     if (definition != null) return source.get_Parameter(definition);
                 }

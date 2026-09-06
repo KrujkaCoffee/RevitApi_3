@@ -13,6 +13,8 @@ namespace RevitApi_3
     /// </summary>
     internal static class ScheduleMirrorBuilder
     {
+        private const string ElementMarkerPrefix = "__ERP_REVIT_ELEMENT__";
+
         private sealed class ElementProfile
         {
             public RevitItem Item { get; set; }
@@ -58,7 +60,7 @@ namespace RevitApi_3
             ReadHeaderRows(schedule, header, columnCount, result.HeaderRows);
             BuildColumns(doc, schedule, header, visibleFields, columnCount, erpParameterGuid, result);
             ReadBodyRows(schedule, body, columnCount, result.Rows);
-            AssociateRowsWithElements(doc, schedule, result);
+            AssociateRowsWithElements(doc, schedule, result, erpParameterGuid);
 
             int matched = result.Rows.Count(x => x.IsResourceRow && x.CanWriteErpCode);
             int unmatched = result.Rows.Count(x => x.IsResourceRow && !x.CanWriteErpCode);
@@ -71,6 +73,8 @@ namespace RevitApi_3
                     $"Revit вернул {columnCount} видимых колонок, а Definition — {visibleFields.Count}. " +
                     "Текст ячеек показан точно, но метаданные колонок сопоставлены не полностью.");
             }
+            if (unmatched > 0 && !string.IsNullOrWhiteSpace(result.AssociationDiagnostic))
+                diagnosticParts.Add(result.AssociationDiagnostic);
             if (unmatched > 0)
             {
                 diagnosticParts.Add(
@@ -226,26 +230,15 @@ namespace RevitApi_3
         private static void AssociateRowsWithElements(
             Document doc,
             ViewSchedule schedule,
-            ScheduleMirrorTable table)
+            ScheduleMirrorTable table,
+            Guid erpParameterGuid)
         {
             List<RevitItem> items = RevitCollectors.CollectFromSchedule(doc, schedule);
             List<int> identityColumns = GetIdentityColumns(table.Columns);
-            var profiles = new List<ElementProfile>(items.Count);
-
-            foreach (RevitItem item in items)
-            {
-                Element instance = doc.GetElement(item.ElementId);
-                if (instance == null) continue;
-                Element type = doc.GetElement(item.TypeId);
-
-                var profile = new ElementProfile { Item = item };
-                foreach (int columnIndex in identityColumns)
-                {
-                    ScheduleField field = table.Columns[columnIndex].RevitField;
-                    profile.Values[columnIndex] = ScheduleFieldValueReader.GetText(doc, instance, type, field);
-                }
-                profiles.Add(profile);
-            }
+            List<ElementProfile> profiles = BuildElementProfiles(
+                doc, schedule, table, items, identityColumns, erpParameterGuid,
+                out string profileDiagnostic);
+            table.AssociationDiagnostic = profileDiagnostic;
 
             List<ProfileCluster> clusters = profiles
                 .GroupBy(x => MakeProfileKey(x, identityColumns), StringComparer.OrdinalIgnoreCase)
@@ -365,6 +358,211 @@ namespace RevitApi_3
                     row.MatchInfo = BuildNoMatchInfo(table, row, nearest);
                 }
             }
+        }
+
+        /// <summary>
+        /// Основной источник профилей — сама спецификация, временно переведённая
+        /// в itemized-режим. В экземплярный ERP-параметр записывается служебная
+        /// метка с ElementId, после чтения GetCellText вся транзакция откатывается.
+        /// Это позволяет получить те же значения, которые вычисляет Revit для
+        /// shared-, типовых, материальных и связанных полей, не угадывая место
+        /// хранения параметра.
+        /// </summary>
+        private static List<ElementProfile> BuildElementProfiles(
+            Document doc,
+            ViewSchedule schedule,
+            ScheduleMirrorTable table,
+            IList<RevitItem> items,
+            IList<int> identityColumns,
+            Guid erpParameterGuid,
+            out string diagnostic)
+        {
+            var result = new List<ElementProfile>();
+            var capturedIds = new HashSet<int>();
+            int distinctItemCount = items
+                .Where(x => x?.ElementId != null)
+                .Select(x => x.ElementId.IntegerValue)
+                .Distinct()
+                .Count();
+
+            string itemizedFailure;
+            List<ElementProfile> itemizedProfiles = TryBuildItemizedProfiles(
+                doc, schedule, table, items, identityColumns, erpParameterGuid,
+                out itemizedFailure);
+            result.AddRange(itemizedProfiles);
+            foreach (ElementProfile profile in itemizedProfiles)
+                capturedIds.Add(profile.Item.ElementId.IntegerValue);
+
+            // Резервный путь нужен для редких видов, где Revit запрещает менять
+            // IsItemized, либо для отдельных элементов с недоступным ERP-параметром.
+            foreach (RevitItem item in items)
+            {
+                if (item?.ElementId == null || capturedIds.Contains(item.ElementId.IntegerValue))
+                    continue;
+
+                Element instance = doc.GetElement(item.ElementId);
+                if (instance == null) continue;
+                Element type = doc.GetElement(item.TypeId);
+
+                var profile = new ElementProfile { Item = item };
+                foreach (int columnIndex in identityColumns)
+                {
+                    ScheduleField field = table.Columns[columnIndex].RevitField;
+                    profile.Values[columnIndex] =
+                        ScheduleFieldValueReader.GetText(doc, instance, type, field);
+                }
+                result.Add(profile);
+            }
+
+            if (capturedIds.Count == distinctItemCount && distinctItemCount > 0)
+            {
+                diagnostic = "";
+            }
+            else if (capturedIds.Count > 0)
+            {
+                diagnostic =
+                    $"Точное чтение itemized-строк охватило {capturedIds.Count} из " +
+                    $"{distinctItemCount} элементов; для остальных использовано чтение параметров.";
+            }
+            else
+            {
+                diagnostic = string.IsNullOrWhiteSpace(itemizedFailure)
+                    ? "Revit не вернул itemized-строки с ElementId; использовано резервное чтение параметров."
+                    : "Точное чтение itemized-строк недоступно: " + itemizedFailure +
+                      " Использовано резервное чтение параметров.";
+            }
+
+            return result;
+        }
+
+        private static List<ElementProfile> TryBuildItemizedProfiles(
+            Document doc,
+            ViewSchedule schedule,
+            ScheduleMirrorTable table,
+            IList<RevitItem> items,
+            IList<int> identityColumns,
+            Guid erpParameterGuid,
+            out string failure)
+        {
+            var result = new List<ElementProfile>();
+            failure = "";
+
+            int markerColumn = table.ErpCodeColumnIndex;
+            if (markerColumn < 0 || markerColumn >= table.Columns.Count)
+            {
+                failure = "в спецификации нет видимой колонки «Код 1C-ERP».";
+                return result;
+            }
+
+            var itemsByMarker = new Dictionary<string, RevitItem>(StringComparer.Ordinal);
+            using (var transaction = new Transaction(doc, "ERP: временная связь строк с ElementId"))
+            {
+                try
+                {
+                    if (transaction.Start() != TransactionStatus.Started)
+                    {
+                        failure = "не удалось начать временную транзакцию.";
+                    }
+                    else
+                    {
+                        schedule.Definition.IsItemized = true;
+
+                        foreach (RevitItem item in items
+                            .Where(x => x?.ElementId != null)
+                            .GroupBy(x => x.ElementId.IntegerValue)
+                            .Select(x => x.First()))
+                        {
+                            Element element = doc.GetElement(item.ElementId);
+                            Parameter parameter = ErpParameters.GetCodeParameter(
+                                element, erpParameterGuid);
+                            if (parameter == null || parameter.IsReadOnly ||
+                                parameter.StorageType != StorageType.String)
+                                continue;
+
+                            string marker = ElementMarkerPrefix + item.ElementId.IntegerValue;
+                            try
+                            {
+                                if (parameter.Set(marker)) itemsByMarker[marker] = item;
+                            }
+                            catch { }
+                        }
+
+                        if (itemsByMarker.Count == 0)
+                        {
+                            failure = "ERP-параметр экземпляров недоступен для временной разметки.";
+                        }
+                        else
+                        {
+                            doc.Regenerate();
+                            TableSectionData body = schedule.GetTableData()
+                                .GetSectionData(SectionType.Body);
+                            if (body == null || body.NumberOfColumns != table.Columns.Count)
+                            {
+                                failure = body == null
+                                    ? "Revit не вернул секцию Body после itemized-развёртки."
+                                    : $"после itemized-развёртки изменилось число колонок " +
+                                      $"({body.NumberOfColumns} вместо {table.Columns.Count}).";
+                            }
+                            else
+                            {
+                                int firstRow = body.FirstRowNumber;
+                                int firstColumn = body.FirstColumnNumber;
+                                for (int rowOffset = 0; rowOffset < body.NumberOfRows; rowOffset++)
+                                {
+                                    int row = firstRow + rowOffset;
+                                    string marker = SafeGetCellText(
+                                        schedule, SectionType.Body,
+                                        row, firstColumn + markerColumn).Trim();
+                                    if (!itemsByMarker.TryGetValue(
+                                            marker, out RevitItem item))
+                                        continue;
+
+                                    var profile = new ElementProfile { Item = item };
+                                    foreach (int columnIndex in identityColumns)
+                                    {
+                                        profile.Values[columnIndex] = SafeGetCellText(
+                                            schedule, SectionType.Body,
+                                            row, firstColumn + columnIndex);
+                                    }
+                                    result.Add(profile);
+                                }
+
+                                if (result.Count == 0)
+                                    failure = "служебные ElementId не появились в строках спецификации.";
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failure = Shorten(ex.Message);
+                    result.Clear();
+                }
+                finally
+                {
+                    if (transaction.GetStatus() == TransactionStatus.Started)
+                    {
+                        TransactionStatus rollbackStatus = transaction.RollBack();
+                        if (rollbackStatus != TransactionStatus.RolledBack)
+                            throw new InvalidOperationException(
+                                "Revit не подтвердил откат временных ElementId. " +
+                                "Операция остановлена; сохранение документа не выполняйте.");
+                    }
+                }
+            }
+
+            bool markerRemained = itemsByMarker.Count > 0 && items
+                .Where(x => x?.ElementId != null)
+                .Select(x => doc.GetElement(x.ElementId))
+                .Where(x => x != null)
+                .Select(x => ErpParameters.ReadCode(x, erpParameterGuid))
+                .Any(x => (x ?? "").StartsWith(ElementMarkerPrefix, StringComparison.Ordinal));
+            if (markerRemained)
+                throw new InvalidOperationException(
+                    "После отката обнаружена служебная метка ElementId. " +
+                    "Операция остановлена; сохранение документа не выполняйте.");
+
+            return result;
         }
 
         private static List<int> GetIdentityColumns(IList<ScheduleMirrorColumn> columns)

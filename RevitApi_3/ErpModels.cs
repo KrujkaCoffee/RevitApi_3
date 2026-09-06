@@ -158,6 +158,7 @@ namespace RevitApi_3
         public List<List<string>> HeaderRows { get; } = new List<List<string>>();
         public List<ScheduleMirrorRow> Rows { get; } = new List<ScheduleMirrorRow>();
         public bool HasExactFieldMapping { get; set; }
+        public string AssociationDiagnostic { get; set; } = "";
         public string Diagnostic { get; set; } = "";
 
         public int ErpCodeColumnIndex => Columns.FindIndex(x => x.IsErpCode);
