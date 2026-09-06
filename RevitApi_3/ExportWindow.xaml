@@ -61,6 +61,19 @@
                       HeadersVisibility="All" EnableRowVirtualization="True"
                       EnableColumnVirtualization="True" LoadingRow="ExportGrid_LoadingRow"
                       BeginningEdit="ExportGrid_BeginningEdit">
+                <DataGrid.ColumnHeaderStyle>
+                    <Style TargetType="DataGridColumnHeader">
+                        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                        <Setter Property="ContentTemplate">
+                            <Setter.Value>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" TextWrapping="Wrap"
+                                               TextAlignment="Center" MaxWidth="260"/>
+                                </DataTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </DataGrid.ColumnHeaderStyle>
                 <DataGrid.RowStyle>
                     <Style TargetType="DataGridRow">
                         <Setter Property="ToolTip" Value="{Binding MatchInfo}"/>

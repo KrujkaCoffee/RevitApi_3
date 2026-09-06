@@ -17,13 +17,21 @@ namespace RevitApi_3
         {
             public RevitItem Item { get; set; }
             public Dictionary<int, string> Values { get; } = new Dictionary<int, string>();
-            public List<string> HiddenIdentityValues { get; } = new List<string>();
         }
 
-        private sealed class ProfileClusterMatch
+        private sealed class ProfileCluster
         {
-            public List<int> ElementIds { get; set; }
-            public string ErpCode { get; set; }
+            public ElementProfile Sample { get; set; }
+            public List<ElementProfile> Profiles { get; } = new List<ElementProfile>();
+        }
+
+        private sealed class RowComparison
+        {
+            public int Matches { get; set; }
+            public int Mismatches { get; set; }
+            public List<int> MismatchColumns { get; } = new List<int>();
+            public Dictionary<int, string> ExpectedValues { get; } = new Dictionary<int, string>();
+            public bool IsExact => Matches > 0 && Mismatches == 0;
         }
 
         public static ScheduleMirrorTable Build(Document doc, ViewSchedule schedule, Guid erpParameterGuid)
@@ -48,23 +56,29 @@ namespace RevitApi_3
             result.HasExactFieldMapping = visibleFields.Count == columnCount;
 
             ReadHeaderRows(schedule, header, columnCount, result.HeaderRows);
-            BuildColumns(doc, visibleFields, columnCount, erpParameterGuid, result);
+            BuildColumns(doc, schedule, header, visibleFields, columnCount, erpParameterGuid, result);
             ReadBodyRows(schedule, body, columnCount, result.Rows);
             AssociateRowsWithElements(doc, schedule, result);
 
+            int matched = result.Rows.Count(x => x.IsResourceRow && x.CanWriteErpCode);
             int unmatched = result.Rows.Count(x => x.IsResourceRow && !x.CanWriteErpCode);
+            int noExactMatch = result.Rows.Count(x => x.MatchState == "no_exact_match");
+            int insufficientIdentity = result.Rows.Count(x => x.MatchState == "insufficient_identity");
+            var diagnosticParts = new List<string>();
             if (!result.HasExactFieldMapping)
             {
-                result.Diagnostic =
+                diagnosticParts.Add(
                     $"Revit вернул {columnCount} видимых колонок, а Definition — {visibleFields.Count}. " +
-                    "Ячейки показаны точно, но запись кода для неоднозначных строк заблокирована.";
+                    "Текст ячеек показан точно, но метаданные колонок сопоставлены не полностью.");
             }
-            else if (unmatched > 0)
+            if (unmatched > 0)
             {
-                result.Diagnostic =
-                    $"{unmatched} строк показаны точно, но не удалось однозначно связать их с ElementId. " +
-                    "Для них запись кода в модель заблокирована.";
+                diagnosticParts.Add(
+                    $"Связано строк: {matched}; заблокировано: {unmatched} " +
+                    $"(нет точного совпадения: {noExactMatch}, недостаточно признаков: {insufficientIdentity}). " +
+                    "Причина каждой строки показана в колонке «Связь с Revit».");
             }
+            result.Diagnostic = string.Join(" ", diagnosticParts);
 
             return result;
         }
@@ -87,17 +101,26 @@ namespace RevitApi_3
             List<List<string>> target)
         {
             if (header == null) return;
-            for (int row = 0; row < header.NumberOfRows; row++)
+            int firstRow = header.FirstRowNumber;
+            int firstColumn = header.FirstColumnNumber;
+            for (int rowOffset = 0; rowOffset < header.NumberOfRows; rowOffset++)
             {
                 var values = new List<string>(columnCount);
-                for (int column = 0; column < columnCount; column++)
-                    values.Add(SafeGetCellText(schedule, SectionType.Header, row, column));
+                int row = firstRow + rowOffset;
+                for (int columnOffset = 0; columnOffset < columnCount; columnOffset++)
+                    values.Add(SafeGetCellText(
+                        schedule,
+                        SectionType.Header,
+                        row,
+                        firstColumn + columnOffset));
                 target.Add(values);
             }
         }
 
         private static void BuildColumns(
             Document doc,
+            ViewSchedule schedule,
+            TableSectionData headerSection,
             List<ScheduleField> fields,
             int columnCount,
             Guid erpParameterGuid,
@@ -108,13 +131,22 @@ namespace RevitApi_3
             for (int index = 0; index < columnCount; index++)
             {
                 ScheduleField field = fields.Count == columnCount ? fields[index] : null;
+                string fieldName = SafeFieldName(field);
                 string header = SafeColumnHeading(field);
                 if (string.IsNullOrWhiteSpace(header))
                     header = FindBottomHeader(target.HeaderRows, index);
                 if (string.IsNullOrWhiteSpace(header))
                     header = "Колонка " + (index + 1);
 
-                string key = MakeUniqueKey(header, index, usedKeys);
+                List<string> headerPath = BuildHeaderPath(
+                    schedule, headerSection, index, columnCount, fieldName, header);
+                string semanticText = string.Join(" ",
+                    headerPath.Concat(new[] { fieldName, header })
+                        .Where(x => !string.IsNullOrWhiteSpace(x)));
+                string keySource = IsOrdinalHeader(header) && !string.IsNullOrWhiteSpace(fieldName)
+                    ? fieldName
+                    : header;
+                string key = MakeUniqueKey(keySource, index, usedKeys);
                 int parameterId = ElementId.InvalidElementId.IntegerValue;
                 string parameterGuid = "";
 
@@ -135,23 +167,37 @@ namespace RevitApi_3
 
                 bool isErp = (!string.IsNullOrWhiteSpace(parameterGuid) &&
                               string.Equals(parameterGuid, erpParameterGuid.ToString("D"),
-                                  StringComparison.OrdinalIgnoreCase)) || IsErpHeader(header);
+                                  StringComparison.OrdinalIgnoreCase)) || IsErpHeader(semanticText);
+                bool isQuantity = ContainsAny(
+                    semanticText, "количество", "кол-во", "quantity", "qty", "count");
+                bool isUnit = ContainsAny(
+                    semanticText, "единица измерения", "ед. изм", "unit");
+                bool isStrongIdentity = !isErp && !isQuantity && !isUnit &&
+                    ContainsAny(semanticText,
+                        "наименование", "name", "марка", "mark", "тип", "type",
+                        "семейство", "family", "код изделия", "product code",
+                        "артикул", "article", "обозначение", "designation",
+                        "размер", "size", "диаметр", "diameter", "гост");
 
-                target.Columns.Add(new ScheduleMirrorColumn
+                var mirrorColumn = new ScheduleMirrorColumn
                 {
                     Index = index,
                     Key = key,
                     Header = header,
+                    FieldName = fieldName,
                     ParameterId = parameterId,
                     ParameterGuid = parameterGuid,
                     FieldType = field?.FieldType.ToString() ?? "",
                     IsCalculated = SafeIsCalculated(field),
                     IsCombined = SafeIsCombined(field),
                     IsErpCode = isErp,
-                    IsQuantity = ContainsAny(header, "количество", "кол-во", "quantity", "qty", "count"),
-                    IsUnit = ContainsAny(header, "единица измерения", "ед. изм", "unit"),
+                    IsQuantity = isQuantity,
+                    IsUnit = isUnit,
+                    IsStrongIdentity = isStrongIdentity,
                     RevitField = field
-                });
+                };
+                mirrorColumn.HeaderPath.AddRange(headerPath);
+                target.Columns.Add(mirrorColumn);
             }
         }
 
@@ -161,11 +207,18 @@ namespace RevitApi_3
             int columnCount,
             List<ScheduleMirrorRow> target)
         {
-            for (int row = 0; row < body.NumberOfRows; row++)
+            int firstRow = body.FirstRowNumber;
+            int firstColumn = body.FirstColumnNumber;
+            for (int rowOffset = 0; rowOffset < body.NumberOfRows; rowOffset++)
             {
-                var mirrorRow = new ScheduleMirrorRow { SourceRowNumber = row + 1 };
-                for (int column = 0; column < columnCount; column++)
-                    mirrorRow.Values.Add(SafeGetCellText(schedule, SectionType.Body, row, column));
+                int row = firstRow + rowOffset;
+                var mirrorRow = new ScheduleMirrorRow { SourceRowNumber = rowOffset + 1 };
+                for (int columnOffset = 0; columnOffset < columnCount; columnOffset++)
+                    mirrorRow.Values.Add(SafeGetCellText(
+                        schedule,
+                        SectionType.Body,
+                        row,
+                        firstColumn + columnOffset));
                 target.Add(mirrorRow);
             }
         }
@@ -177,7 +230,6 @@ namespace RevitApi_3
         {
             List<RevitItem> items = RevitCollectors.CollectFromSchedule(doc, schedule);
             List<int> identityColumns = GetIdentityColumns(table.Columns);
-            List<ScheduleField> hiddenIdentityFields = GetHiddenIdentityFields(schedule.Definition);
             var profiles = new List<ElementProfile>(items.Count);
 
             foreach (RevitItem item in items)
@@ -192,115 +244,125 @@ namespace RevitApi_3
                     ScheduleField field = table.Columns[columnIndex].RevitField;
                     profile.Values[columnIndex] = ScheduleFieldValueReader.GetText(doc, instance, type, field);
                 }
-                foreach (ScheduleField field in hiddenIdentityFields)
-                    profile.HiddenIdentityValues.Add(
-                        ScheduleFieldValueReader.GetText(doc, instance, type, field));
                 profiles.Add(profile);
             }
 
-            var clusters = profiles
+            List<ProfileCluster> clusters = profiles
                 .GroupBy(x => MakeProfileKey(x, identityColumns), StringComparer.OrdinalIgnoreCase)
                 .Where(x => !string.IsNullOrWhiteSpace(x.Key))
+                .Select(group =>
+                {
+                    var cluster = new ProfileCluster
+                    {
+                        Sample = group.First()
+                    };
+                    cluster.Profiles.AddRange(group);
+                    return cluster;
+                })
                 .ToList();
 
-            var rowMatches = new Dictionary<ScheduleMirrorRow, List<ProfileClusterMatch>>();
-            foreach (IGrouping<string, ElementProfile> cluster in clusters)
+            int erpColumn = table.ErpCodeColumnIndex;
+            foreach (ScheduleMirrorRow row in table.Rows)
             {
-                ElementProfile sample = cluster.First();
-                int bestScore = 0;
-                var bestRows = new List<ScheduleMirrorRow>();
+                string visibleCode = erpColumn >= 0 ? row.GetValue(erpColumn).Trim() : "";
+                int populatedIdentity = identityColumns.Count(index =>
+                    !string.IsNullOrWhiteSpace(row.GetValue(index)));
+                bool hasStrongIdentity = identityColumns.Any(index =>
+                    table.Columns[index].IsStrongIdentity &&
+                    !string.IsNullOrWhiteSpace(row.GetValue(index)));
+                int minimumEvidence = hasStrongIdentity || schedule.Definition.IsItemized ? 1 : 2;
 
-                foreach (ScheduleMirrorRow row in table.Rows)
+                int bestExactScore = 0;
+                var bestClusters = new List<ProfileCluster>();
+                RowComparison nearest = null;
+
+                foreach (ProfileCluster cluster in clusters)
                 {
-                    int score = ScoreRow(row, sample, identityColumns);
-                    if (score > bestScore)
+                    RowComparison comparison = CompareRow(row, cluster.Sample, identityColumns);
+                    if (nearest == null || comparison.Matches > nearest.Matches ||
+                        (comparison.Matches == nearest.Matches &&
+                         comparison.Mismatches < nearest.Mismatches))
                     {
-                        bestScore = score;
-                        bestRows.Clear();
-                        bestRows.Add(row);
+                        nearest = comparison;
                     }
-                    else if (score > 0 && score == bestScore)
+
+                    if (!comparison.IsExact) continue;
+                    if (comparison.Matches > bestExactScore)
                     {
-                        bestRows.Add(row);
+                        bestExactScore = comparison.Matches;
+                        bestClusters.Clear();
+                        bestClusters.Add(cluster);
+                    }
+                    else if (comparison.Matches == bestExactScore)
+                    {
+                        bestClusters.Add(cluster);
                     }
                 }
 
-                if (bestScore == 0) continue;
-
-                List<int> elementIds = cluster
-                    .Select(x => x.Item.ElementId.IntegerValue)
-                    .Distinct()
-                    .ToList();
-                List<string> codes = cluster
-                    .Select(x => (x.Item.ErpCode ?? "").Trim())
-                    .Where(x => !string.IsNullOrWhiteSpace(x))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-                string code = codes.Count == 1 ? codes[0] : codes.Count > 1 ? "-" : "";
-                var match = new ProfileClusterMatch { ElementIds = elementIds, ErpCode = code };
-
-                // Несколько одинаковых itemized-строк — одна номенклатурная сущность.
-                // Код у них обязан быть одинаковым, поэтому связываем весь набор.
-                foreach (ScheduleMirrorRow row in bestRows)
+                if (bestExactScore >= minimumEvidence && bestClusters.Count > 0)
                 {
-                    if (!rowMatches.TryGetValue(row, out List<ProfileClusterMatch> matches))
-                    {
-                        matches = new List<ProfileClusterMatch>();
-                        rowMatches[row] = matches;
-                    }
-                    matches.Add(match);
-                }
-            }
-            int erpColumn;
-            foreach (KeyValuePair<ScheduleMirrorRow, List<ProfileClusterMatch>> pair in rowMatches)
-            {
-                ScheduleMirrorRow row = pair.Key;
-                List<ProfileClusterMatch> matches = pair.Value;
-                row.IsResourceRow = true;
+                    List<ElementProfile> matchedProfiles = bestClusters
+                        .SelectMany(x => x.Profiles)
+                        .ToList();
+                    List<int> elementIds = matchedProfiles
+                        .Select(x => x.Item.ElementId.IntegerValue)
+                        .Distinct()
+                        .OrderBy(x => x)
+                        .ToList();
+                    List<string> codes = matchedProfiles
+                        .Select(x => (x.Item.ErpCode ?? "").Trim())
+                        .Where(x => !string.IsNullOrWhiteSpace(x))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
 
-                if (matches.Count != 1)
-                {
-                    erpColumn = table.ErpCodeColumnIndex;
-                    string visibleCode = erpColumn >= 0 ? row.GetValue(erpColumn).Trim() : "";
-                    row.ErpCode = visibleCode;
-                    row.OriginalErpCode = visibleCode;
-                    row.MatchInfo =
-                        $"Неоднозначная связь: строке соответствуют {matches.Count} группы элементов";
+                    row.IsResourceRow = true;
+                    row.MatchState = "matched";
+                    row.MatchedFieldCount = bestExactScore;
+                    row.ElementIds.AddRange(elementIds);
+                    row.AssociationKey = string.Join(",", elementIds);
+                    row.ErpCode = codes.Count == 1
+                        ? codes[0]
+                        : codes.Count > 1 ? "-" : visibleCode;
+                    row.OriginalErpCode = row.ErpCode;
+                    row.MatchInfo = bestClusters.Count == 1
+                        ? $"Связано элементов Revit: {elementIds.Count}; совпавших полей: {bestExactScore}."
+                        : $"Связано элементов Revit: {elementIds.Count}; объединено визуально " +
+                          $"неразличимых групп: {bestClusters.Count}; совпавших полей: {bestExactScore}.";
                     continue;
                 }
 
-                ProfileClusterMatch single = matches[0];
-                row.ElementIds.AddRange(single.ElementIds);
-                row.ErpCode = single.ErpCode;
-                row.OriginalErpCode = single.ErpCode;
-                row.MatchInfo = $"Связано элементов Revit: {row.ElementIds.Count}";
-            }
-
-            erpColumn = table.ErpCodeColumnIndex;
-            foreach (ScheduleMirrorRow row in table.Rows)
-            {
-                if (row.IsResourceRow) continue;
-
-                int populatedIdentity = identityColumns.Count(i =>
-                    !string.IsNullOrWhiteSpace(row.GetValue(i)));
                 int populatedTotal = row.Values.Count(x => !string.IsNullOrWhiteSpace(x));
-                string visibleErpCode = erpColumn >= 0 ? row.GetValue(erpColumn).Trim() : "";
+                bool looksLikeAggregate = IsAggregateRow(row);
+                bool looksLikeResource = !looksLikeAggregate &&
+                    (populatedIdentity >= 2 || hasStrongIdentity ||
+                     !string.IsNullOrWhiteSpace(visibleCode) ||
+                     (schedule.Definition.IsItemized && populatedTotal >= 2 && populatedIdentity > 0));
 
-                // Строки итогов/заголовков обычно содержат одно значение. Две и
-                // более номенклатурные ячейки — консервативный fallback для данных.
-                if (populatedIdentity >= 2 || (!string.IsNullOrWhiteSpace(visibleErpCode) && visibleErpCode != "-"))
+                if (!looksLikeResource)
                 {
-                    row.IsResourceRow = true;
-                    row.ErpCode = visibleErpCode;
-                    row.OriginalErpCode = visibleErpCode;
-                    row.MatchInfo = "Строка данных не связана однозначно с ElementId";
+                    row.MatchState = "not_resource";
+                    row.MatchInfo = looksLikeAggregate
+                        ? "Заголовок или итоговая строка; запись ERP-кода не требуется."
+                        : "Служебная строка спецификации; номенклатурные признаки отсутствуют.";
+                    continue;
                 }
-                else if (schedule.Definition.IsItemized && populatedTotal >= 2 && populatedIdentity > 0)
+
+                row.IsResourceRow = true;
+                row.ErpCode = visibleCode;
+                row.OriginalErpCode = visibleCode;
+                row.MatchedFieldCount = bestExactScore;
+
+                if (bestExactScore > 0 && bestExactScore < minimumEvidence)
                 {
-                    row.IsResourceRow = true;
-                    row.ErpCode = visibleErpCode;
-                    row.OriginalErpCode = visibleErpCode;
-                    row.MatchInfo = "Itemized-строка не связана однозначно с ElementId";
+                    row.MatchState = "insufficient_identity";
+                    row.MatchInfo =
+                        $"Недостаточно признаков для безопасной связи: совпало {bestExactScore}, " +
+                        $"требуется {minimumEvidence}.";
+                }
+                else
+                {
+                    row.MatchState = "no_exact_match";
+                    row.MatchInfo = BuildNoMatchInfo(table, row, nearest);
                 }
             }
         }
@@ -320,34 +382,11 @@ namespace RevitApi_3
                 }
                 catch { }
 
-                string header = column.Header ?? "";
-                if (IsContextOrAggregateHeader(header))
+                string semanticText = GetColumnSemanticText(column);
+                if (IsContextOrAggregateHeader(semanticText))
                     continue;
 
                 result.Add(column.Index);
-            }
-            return result;
-        }
-
-        private static List<ScheduleField> GetHiddenIdentityFields(ScheduleDefinition definition)
-        {
-            var result = new List<ScheduleField>();
-            int count = definition.GetSortGroupFieldCount();
-            for (int index = 0; index < count; index++)
-            {
-                ScheduleSortGroupField sort = definition.GetSortGroupField(index);
-                ScheduleField field = sort == null ? null : definition.GetField(sort.FieldId);
-                if (field == null || !field.IsHidden || SafeIsCalculated(field) || SafeIsCombined(field))
-                    continue;
-
-                string header = SafeColumnHeading(field);
-                if (IsErpHeader(header) ||
-                    ContainsAny(header, "количество", "кол-во", "quantity", "qty", "count",
-                        "единица измерения", "ед. изм", "unit") ||
-                    IsContextOrAggregateHeader(header))
-                    continue;
-
-                result.Add(field);
             }
             return result;
         }
@@ -356,8 +395,6 @@ namespace RevitApi_3
         {
             var builder = new StringBuilder();
             bool hasValue = false;
-            int typeId = profile.Item?.TypeId?.IntegerValue ?? ElementId.InvalidElementId.IntegerValue;
-            builder.Append("type=").Append(typeId).Append('\u001F');
             foreach (int index in identityColumns)
             {
                 profile.Values.TryGetValue(index, out string value);
@@ -365,22 +402,15 @@ namespace RevitApi_3
                 if (!string.IsNullOrWhiteSpace(normalized)) hasValue = true;
                 builder.Append(index).Append('=').Append(normalized).Append('\u001F');
             }
-            for (int index = 0; index < profile.HiddenIdentityValues.Count; index++)
-            {
-                string normalized = Normalize(profile.HiddenIdentityValues[index]);
-                if (!string.IsNullOrWhiteSpace(normalized)) hasValue = true;
-                builder.Append("hidden_").Append(index).Append('=').Append(normalized).Append('\u001F');
-            }
             return hasValue ? builder.ToString().Trim('\u001F') : "";
         }
 
-        private static int ScoreRow(
+        private static RowComparison CompareRow(
             ScheduleMirrorRow row,
             ElementProfile profile,
             IList<int> identityColumns)
         {
-            int matches = 0;
-            int mismatches = 0;
+            var result = new RowComparison();
 
             foreach (int index in identityColumns)
             {
@@ -391,15 +421,160 @@ namespace RevitApi_3
                 if (string.IsNullOrEmpty(actual)) continue;
                 if (string.IsNullOrEmpty(expected))
                 {
-                    mismatches++;
+                    result.Mismatches++;
+                    result.MismatchColumns.Add(index);
+                    result.ExpectedValues[index] = expectedRaw ?? "";
                     continue;
                 }
 
-                if (string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase)) matches++;
-                else mismatches++;
+                if (string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase))
+                {
+                    result.Matches++;
+                }
+                else
+                {
+                    result.Mismatches++;
+                    result.MismatchColumns.Add(index);
+                    result.ExpectedValues[index] = expectedRaw ?? "";
+                }
             }
 
-            return mismatches == 0 ? matches : 0;
+            return result;
+        }
+
+        private static string BuildNoMatchInfo(
+            ScheduleMirrorTable table,
+            ScheduleMirrorRow row,
+            RowComparison nearest)
+        {
+            if (nearest == null)
+                return "Не найдено ни одного профиля элементов для сравнения.";
+
+            string fields = string.Join("; ", nearest.MismatchColumns
+                .Take(3)
+                .Where(index => index >= 0 && index < table.Columns.Count)
+                .Select(index =>
+                {
+                    nearest.ExpectedValues.TryGetValue(index, out string expected);
+                    string header = table.Columns[index].DisplayHeader.Replace('\n', ' ');
+                    return $"{header}: «{Shorten(row.GetValue(index))}» ≠ «{Shorten(expected)}»";
+                }));
+            if (string.IsNullOrWhiteSpace(fields)) fields = "сопоставляемые поля";
+
+            return $"Нет точного совпадения. Лучший кандидат: совпало {nearest.Matches}, " +
+                   $"различается {nearest.Mismatches}; поля: {fields}.";
+        }
+
+        private static string Shorten(string value)
+        {
+            value = (value ?? "").Trim();
+            return value.Length <= 48 ? value : value.Substring(0, 45) + "…";
+        }
+
+        private static bool IsAggregateRow(ScheduleMirrorRow row)
+        {
+            foreach (string value in row.Values)
+            {
+                string normalized = Normalize(value);
+                if (normalized == "итого" || normalized.StartsWith("итого ") ||
+                    normalized == "всего" || normalized.StartsWith("всего ") ||
+                    normalized == "total" || normalized.StartsWith("grand total"))
+                    return true;
+            }
+            return false;
+        }
+
+        private static List<string> BuildHeaderPath(
+            ViewSchedule schedule,
+            TableSectionData header,
+            int logicalColumn,
+            int bodyColumnCount,
+            string fieldName,
+            string leafHeader)
+        {
+            var result = new List<string>();
+            if (header != null && logicalColumn < header.NumberOfColumns)
+            {
+                int firstRow = header.FirstRowNumber;
+                int firstColumn = header.FirstColumnNumber;
+                int lastColumn = firstColumn + header.NumberOfColumns - 1;
+                int actualColumn = firstColumn + logicalColumn;
+
+                for (int rowOffset = 0; rowOffset < header.NumberOfRows; rowOffset++)
+                {
+                    int actualRow = firstRow + rowOffset;
+                    string text = SafeGetCellText(
+                        schedule, SectionType.Header, actualRow, actualColumn);
+                    bool coversWholeHeader = false;
+
+                    try
+                    {
+                        using (TableMergedCell merged = header.GetMergedCell(actualRow, actualColumn))
+                        {
+                            if (merged != null)
+                            {
+                                coversWholeHeader = merged.Left <= firstColumn &&
+                                                    merged.Right >= lastColumn;
+                                if (string.IsNullOrWhiteSpace(text))
+                                {
+                                    text = SafeGetCellText(
+                                        schedule, SectionType.Header, merged.Top, merged.Left);
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+
+                    // Первая объединённая строка — заголовок всей спецификации,
+                    // а не конкретной колонки. Не дублируем его над каждым полем.
+                    if ((rowOffset == 0 && coversWholeHeader && bodyColumnCount > 1) ||
+                        string.Equals(
+                            Normalize(text), Normalize(schedule?.Name),
+                            StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    AddHeaderPart(result, text);
+                }
+            }
+
+            // В некоторых шаблонах содержательные подписи сделаны объединёнными
+            // ячейками, а ColumnHeading содержит только номер 1, 2, 3... Если API
+            // не вернул верхний уровень, показываем имя исходного поля над номером.
+            if ((result.Count == 0 || result.All(IsOrdinalHeader)) &&
+                !string.IsNullOrWhiteSpace(fieldName) && !IsOrdinalHeader(fieldName))
+                result.Insert(0, fieldName.Trim());
+
+            AddHeaderPart(result, leafHeader);
+            if (result.Count == 0) result.Add("Колонка " + (logicalColumn + 1));
+            return result;
+        }
+
+        private static void AddHeaderPart(ICollection<string> target, string value)
+        {
+            value = (value ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(value)) return;
+            if (target.Any(existing => string.Equals(
+                    Normalize(existing), Normalize(value), StringComparison.OrdinalIgnoreCase)))
+                return;
+            target.Add(value);
+        }
+
+        private static bool IsOrdinalHeader(string value)
+        {
+            string normalized = (value ?? "").Trim().TrimEnd('.', ')');
+            normalized = normalized.TrimStart('№', '#').Trim();
+            return int.TryParse(normalized, out _);
+        }
+
+        private static string GetColumnSemanticText(ScheduleMirrorColumn column)
+        {
+            if (column == null) return "";
+            return string.Join(" ", new[]
+            {
+                column.FieldName,
+                column.Header,
+                column.DisplayHeader
+            }.Where(x => !string.IsNullOrWhiteSpace(x)));
         }
 
         private static string SafeGetCellText(ViewSchedule schedule, SectionType section, int row, int column)
@@ -417,6 +592,13 @@ namespace RevitApi_3
                 if (!string.IsNullOrWhiteSpace(heading)) return heading.Trim();
             }
             catch { }
+            try { return (field.GetName() ?? "").Trim(); }
+            catch { return ""; }
+        }
+
+        private static string SafeFieldName(ScheduleField field)
+        {
+            if (field == null) return "";
             try { return (field.GetName() ?? "").Trim(); }
             catch { return ""; }
         }

@@ -58,7 +58,7 @@ namespace RevitApi_3
             {
                 RevitGrid.Columns.Add(new DataGridTextColumn
                 {
-                    Header = column.Header,
+                    Header = column.DisplayHeader,
                     Binding = new Binding($"Values[{column.Index}]") { Mode = BindingMode.OneWay },
                     IsReadOnly = true,
                     MinWidth = 85,
@@ -66,6 +66,14 @@ namespace RevitApi_3
                 });
             }
 
+            RevitGrid.Columns.Add(new DataGridTextColumn
+            {
+                Header = "Связь с Revit",
+                Binding = new Binding(nameof(ScheduleMirrorRow.MatchInfo)),
+                IsReadOnly = true,
+                MinWidth = 220,
+                Width = DataGridLength.Auto
+            });
             RevitGrid.Columns.Add(new DataGridTextColumn
             {
                 Header = "Код 1C-ERP (запись)",
@@ -309,14 +317,29 @@ namespace RevitApi_3
                 .ToList();
             if (unsafeRows.Count > 0)
             {
+                string details = string.Join("\n", unsafeRows
+                    .Take(5)
+                    .Select(row => $"Строка {row.SourceRowNumber}: {row.MatchInfo}"));
+                if (unsafeRows.Count > 5)
+                    details += $"\n…и ещё {unsafeRows.Count - 5}.";
                 MessageBox.Show(
                     "Среди выбранных есть заголовки/итоги либо строки без однозначной связи с ElementId. " +
-                    "Назначение отменено, чтобы не записать код не тем элементам.",
+                    "Назначение отменено, чтобы не записать код не тем элементам.\n\n" + details,
                     "ERP", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            foreach (ScheduleMirrorRow row in selected)
+            var associationKeys = new HashSet<string>(selected
+                .Select(x => x.AssociationKey)
+                .Where(x => !string.IsNullOrWhiteSpace(x)),
+                StringComparer.Ordinal);
+            List<ScheduleMirrorRow> targetRows = _table.ResourceRows
+                .Where(row => selected.Contains(row) ||
+                              (!string.IsNullOrWhiteSpace(row.AssociationKey) &&
+                               associationKeys.Contains(row.AssociationKey)))
+                .ToList();
+
+            foreach (ScheduleMirrorRow row in targetRows)
             {
                 row.ErpCode = erp.Code;
                 row.ErpName1c = erp.Name;

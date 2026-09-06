@@ -112,7 +112,7 @@ namespace RevitApi_3
                 bool editableQuantity = column.IsQuantity;
                 ExportGrid.Columns.Add(new DataGridTextColumn
                 {
-                    Header = column.Header,
+                    Header = column.DisplayHeader,
                     Binding = new Binding($"Values[{column.Index}]")
                     {
                         Mode = editableQuantity ? BindingMode.TwoWay : BindingMode.OneWay,

@@ -52,7 +52,15 @@ namespace RevitApi_3
     {
         public int Index { get; set; }
         public string Key { get; set; }
+        /// <summary>Нижний заголовок поля из ScheduleField.ColumnHeading.</summary>
         public string Header { get; set; }
+        /// <summary>Имя исходного параметра независимо от пользовательской шапки.</summary>
+        public string FieldName { get; set; }
+        /// <summary>Все уровни пользовательской шапки для показа в WPF.</summary>
+        public List<string> HeaderPath { get; } = new List<string>();
+        public string DisplayHeader => HeaderPath.Count > 0
+            ? string.Join("\n", HeaderPath)
+            : Header ?? "";
         public int ParameterId { get; set; }
         public string ParameterGuid { get; set; }
         public string FieldType { get; set; }
@@ -61,6 +69,7 @@ namespace RevitApi_3
         public bool IsErpCode { get; set; }
         public bool IsQuantity { get; set; }
         public bool IsUnit { get; set; }
+        public bool IsStrongIdentity { get; set; }
 
         // Нужен только внутри Revit-клиента для безопасного сопоставления строки
         // с экземплярами. В HTTP payload объект ScheduleField не попадает.
@@ -84,6 +93,13 @@ namespace RevitApi_3
 
         public bool IsResourceRow { get; set; }
         public bool CanWriteErpCode => ElementIds.Count > 0;
+        /// <summary>
+        /// Одинаковый ключ означает, что строки неразличимы по номенклатурным
+        /// полям и обязаны получать один ERP-код.
+        /// </summary>
+        public string AssociationKey { get; set; } = "";
+        public string MatchState { get; set; } = "not_resource";
+        public int MatchedFieldCount { get; set; }
         public string MatchInfo { get; set; } = "";
         public string OriginalErpCode { get; set; } = "";
 
