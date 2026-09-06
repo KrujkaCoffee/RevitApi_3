@@ -591,6 +591,9 @@ namespace RevitApi_3
                     order = column.Index,
                     key = column.Key,
                     header = column.Header,
+                    display_header = column.DisplayHeader,
+                    header_path = column.HeaderPath,
+                    field_name = column.FieldName,
                     parameter_id = column.ParameterId,
                     parameter_guid = column.ParameterGuid,
                     field_type = column.FieldType,
@@ -608,6 +611,8 @@ namespace RevitApi_3
                 {
                     ["source_row"] = row.SourceRowNumber,
                     ["is_resource_row"] = row.IsResourceRow,
+                    ["match_state"] = row.MatchState,
+                    ["match_info"] = row.MatchInfo,
                     ["cells"] = JArray.FromObject(row.Values)
                 });
             }
@@ -635,7 +640,9 @@ namespace RevitApi_3
                     ["DisplayName"] = FindValue(table, row, "наименование", "name"),
                     ["values"] = values,
                     ["cells"] = JArray.FromObject(row.Values),
-                    ["element_ids"] = new JArray(row.ElementIds)
+                    ["element_ids"] = new JArray(row.ElementIds),
+                    ["match_state"] = row.MatchState,
+                    ["match_info"] = row.MatchInfo
                 });
             }
 
@@ -683,8 +690,13 @@ namespace RevitApi_3
         {
             foreach (ScheduleMirrorColumn column in table.Columns)
             {
-                string header = (column.Header ?? "").ToLowerInvariant();
-                if (tokens.Any(token => header.Contains((token ?? "").ToLowerInvariant())))
+                string semanticText = string.Join(" ", new[]
+                {
+                    column.FieldName,
+                    column.Header,
+                    column.DisplayHeader
+                }).ToLowerInvariant();
+                if (tokens.Any(token => semanticText.Contains((token ?? "").ToLowerInvariant())))
                     return row.GetValue(column.Index);
             }
             return "";

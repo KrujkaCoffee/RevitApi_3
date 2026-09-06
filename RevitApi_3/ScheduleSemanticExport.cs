@@ -18,7 +18,7 @@ namespace RevitApi_3
             if (SafeIsCalculated(field) || SafeIsCombined(field)) return "";
 
             Parameter parameter = ResolveParameter(doc, instance, type, field);
-            if (parameter == null) return "";
+            if (parameter == null) return ReadSpecialField(instance, type, field);
 
             try
             {
@@ -60,9 +60,26 @@ namespace RevitApi_3
             Element type,
             ScheduleField field)
         {
-            Element source = field.FieldType == ScheduleFieldType.ElementType
+            Element preferred = field.FieldType == ScheduleFieldType.ElementType
                 ? type ?? instance
                 : instance;
+            Element fallback = ReferenceEquals(preferred, instance) ? type : instance;
+
+            Parameter result = ResolveParameterOnElement(doc, preferred, field);
+            if (result != null) return result;
+
+            // У общих параметров в клиентских шаблонах встречаются как
+            // экземплярные, так и типовые привязки. FieldType не во всех таких
+            // спецификациях надёжно отражает место хранения, поэтому второй
+            // источник проверяется явно.
+            return ResolveParameterOnElement(doc, fallback, field);
+        }
+
+        private static Parameter ResolveParameterOnElement(
+            Document doc,
+            Element source,
+            ScheduleField field)
+        {
             if (source == null) return null;
 
             try
@@ -92,6 +109,34 @@ namespace RevitApi_3
             return string.Equals(name, heading, StringComparison.OrdinalIgnoreCase)
                 ? null
                 : GetUniqueByName(source, heading);
+        }
+
+        private static string ReadSpecialField(
+            Element instance,
+            Element type,
+            ScheduleField field)
+        {
+            string name = "";
+            try { name = (field.GetName() ?? "").Trim().ToLowerInvariant(); }
+            catch { }
+
+            ElementType elementType = type as ElementType;
+            if (name == "семейство" || name == "family")
+                return (elementType?.FamilyName ?? "").Trim();
+            if (name.Contains("семейство и тип") || name.Contains("family and type"))
+            {
+                string family = (elementType?.FamilyName ?? "").Trim();
+                string typeName = (type?.Name ?? "").Trim();
+                return string.IsNullOrWhiteSpace(family)
+                    ? typeName
+                    : string.IsNullOrWhiteSpace(typeName) ? family : family + " : " + typeName;
+            }
+            if (name == "тип" || name == "type")
+                return (type?.Name ?? "").Trim();
+            if (name == "категория" || name == "category")
+                return (instance?.Category?.Name ?? "").Trim();
+
+            return "";
         }
 
         private static Parameter GetUniqueByName(Element element, string name)
