@@ -385,6 +385,12 @@ namespace RevitApi_3
                 .Distinct()
                 .Count();
 
+            // RollBack временной itemized-транзакции может инвалидировать
+            // ScheduleField. Через неё переносим только числовые ID полей.
+            var identityFieldIds = identityColumns.ToDictionary(
+                index => index,
+                index => table.Columns[index].RevitField.FieldId.IntegerValue);
+
             string itemizedFailure;
             List<ElementProfile> itemizedProfiles = TryBuildItemizedProfiles(
                 doc, schedule, table, items, identityColumns, erpParameterGuid,
@@ -392,6 +398,22 @@ namespace RevitApi_3
             result.AddRange(itemizedProfiles);
             foreach (ElementProfile profile in itemizedProfiles)
                 capturedIds.Add(profile.Item.ElementId.IntegerValue);
+
+            if (capturedIds.Count < distinctItemCount)
+            {
+                // Повторно получаем Definition и поля после завершения отката.
+                // FieldId сохраняет соответствие колонкам при наличии скрытых полей.
+                ScheduleDefinition definition = schedule.Definition;
+                foreach (KeyValuePair<int, int> pair in identityFieldIds)
+                {
+                    ScheduleField field = definition.GetField(new ScheduleFieldId(pair.Value));
+                    if (field == null || !field.IsValidObject)
+                        throw new InvalidOperationException(
+                            "Не удалось повторно прочитать поле спецификации после временной разметки. " +
+                            "Повторите открытие окна.");
+                    table.Columns[pair.Key].RevitField = field;
+                }
+            }
 
             // Резервный путь нужен для редких видов, где Revit запрещает менять
             // IsItemized, либо для отдельных элементов с недоступным ERP-параметром.
