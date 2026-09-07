@@ -32,7 +32,16 @@ namespace RevitApi_3
                     return Result.Failed;
                 }
 
-                Guid erpParameterGuid = ErpParameters.ResolveErpCodeGuid(doc);
+                var items = RevitCollectors.CollectFromSchedule(doc, vs);
+                if (items.Count == 0)
+                {
+                    TaskDialog.Show("ERP", "В активной спецификации нет элементов для выгрузки.");
+                    return Result.Succeeded;
+                }
+
+                // Как и в сопоставлении, готовим экземплярную привязку до чтения
+                // полей и строк: настройка параметра может изменить спецификацию.
+                Guid erpParameterGuid = ErpParameters.EnsureErpCodeParameterForItems(doc, items);
                 ScheduleMirrorTable table = ScheduleMirrorBuilder.Build(doc, vs, erpParameterGuid);
                 if (!table.ResourceRows.Any())
                 {
