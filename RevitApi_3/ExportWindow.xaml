@@ -54,7 +54,7 @@
             </StackPanel>
         </StackPanel>
 
-        <GroupBox Grid.Row="1" Header="Предпросмотр активной спецификации (ячейки Revit 1:1)">
+        <GroupBox Grid.Row="1" Header="Предпросмотр активной спецификации">
             <DataGrid x:Name="ExportGrid" AutoGenerateColumns="False" IsReadOnly="False"
                       SelectionMode="Single" SelectionUnit="FullRow" CanUserAddRows="False"
                       CanUserSortColumns="False" CanUserReorderColumns="False"

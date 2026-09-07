@@ -12,7 +12,8 @@ namespace RevitApi_3
     internal static class ErpClient
     {
         private const string DefaultBaseUrl = "http://srv-mes:20011";
-        private const int RequestTimeoutMs = 45000;
+        //private const int RequestTimeoutMs = 45000;
+        private const int RequestTimeoutMs = 7 * 60 * 1000;
         private static string BaseUrl =>
             (Environment.GetEnvironmentVariable("REVIT_ERP_BASE_URL") ?? DefaultBaseUrl).TrimEnd('/');
 

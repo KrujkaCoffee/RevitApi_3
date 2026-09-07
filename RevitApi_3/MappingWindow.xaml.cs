@@ -72,7 +72,8 @@ namespace RevitApi_3
                 Binding = new Binding(nameof(ScheduleMirrorRow.MatchInfo)),
                 IsReadOnly = true,
                 MinWidth = 220,
-                Width = DataGridLength.Auto
+                Width = DataGridLength.Auto,
+                Visibility = Visibility.Hidden
             });
             RevitGrid.Columns.Add(new DataGridTextColumn
             {

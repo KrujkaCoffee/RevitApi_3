@@ -54,7 +54,7 @@ namespace RevitApi_3
                 if (window.ShowDialog() != true) return Result.Succeeded;
 
                 int count = ApplyErpCodes(doc, window.ResultRows, parameterGuid);
-                TaskDialog.Show("ERP", "Код 1C-ERP записан в экземпляры: " + count);
+                TaskDialog.Show("ERP", "Код 1C-ERP успешно записан.");
                 return Result.Succeeded;
             }
             catch (Exception ex)

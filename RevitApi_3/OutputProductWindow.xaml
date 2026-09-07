@@ -59,7 +59,7 @@
                                       AutoGenerateColumns="False"
                                       IsReadOnly="True">
                                 <DataGrid.Columns>
-                                    <DataGridTextColumn Header="Код" Binding="{Binding Code}" Width="*"/>
+                                    <DataGridTextColumn  Header="Код" Binding="{Binding Code}" Width="*"/>
                                     <DataGridTextColumn Header="Наименование" Binding="{Binding Name}" Width="2*"/>
                                     <DataGridTextColumn Header="Ед. изм." Binding="{Binding Unit}" Width="Auto" MinWidth="70"/>
                                     <DataGridTextColumn Header="Дополнительно" Binding="{Binding Extra}" Width="*"/>

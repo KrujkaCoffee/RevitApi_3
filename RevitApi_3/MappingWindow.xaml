@@ -41,7 +41,7 @@
         </StackPanel>
 
         <GroupBox Grid.Row="2" Grid.Column="0" Margin="0,0,4,0"
-                  Header="Строки активной спецификации (ячейки Revit 1:1)">
+                  Header="Строки активной спецификации ">
             <DataGrid x:Name="RevitGrid" AutoGenerateColumns="False"
                       IsReadOnly="True" SelectionMode="Extended"
                       SelectionUnit="FullRow" CanUserAddRows="False"
