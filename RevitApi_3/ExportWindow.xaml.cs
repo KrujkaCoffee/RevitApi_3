@@ -34,6 +34,8 @@ namespace RevitApi_3
         private ErpItem _outputProduct;
         private string _last1cLink;
         private bool _isBusy;
+        private bool _referencesLoaded;
+        private int _skippedRowCount;
 
         public string DocTitle => (TitleBox.Text ?? "").Trim();
         public bool ExportSucceeded { get; private set; }
@@ -142,12 +144,13 @@ namespace RevitApi_3
             SetServiceStatus("Загрузка справочников ERP…");
             try
             {
-                Task<List<ErpTreeNode>> treeTask = Task.Run(() => ErpClient.LoadErpTree());
+                Task<List<ErpTreeNode>> treeTask = Task.Run(() => ErpClient.LoadErpTree("revit_output_product"));
                 Task<List<RefNamedItem>> typesTask = Task.Run(() => ErpClient.LoadNomenclatureTypes());
                 Task<List<RefNamedItem>> unitsTask = Task.Run(() => ErpClient.LoadUnits());
                 Task<List<RefNamedItem>> stagesTask = Task.Run(() => ErpClient.LoadStages());
+                Task<List<RefNamedItem>> articlesTask = Task.Run(() => ErpClient.LoadCostArticles());
 
-                await Task.WhenAll(treeTask, typesTask, unitsTask, stagesTask);
+                await Task.WhenAll(treeTask, typesTask, unitsTask, stagesTask, articlesTask);
                 _treeRoots = treeTask.Result ?? new List<ErpTreeNode>();
                 _types = typesTask.Result ?? new List<RefNamedItem>();
                 _units = unitsTask.Result ?? new List<RefNamedItem>();
@@ -155,8 +158,11 @@ namespace RevitApi_3
                 foreach (RefNamedItem stage in stagesTask.Result ?? new List<RefNamedItem>())
                     _stages.Add(stage);
 
-                BtnPickOutput.IsEnabled = true;
-                SetServiceStatus("Справочники ERP загружены.");
+                CostArticleCombo.ItemsSource = articlesTask.Result;
+                _referencesLoaded = true;
+                SetBusy(false, articlesTask.Result.Count > 0
+                    ? "Справочники ERP загружены. Выберите статью калькуляции."
+                    : "В заданной группе нет доступных статей калькуляции.");
             }
             catch (Exception ex)
             {
@@ -192,7 +198,8 @@ namespace RevitApi_3
                 OutputProductWindowMode.PickOrCreate,
                 initialName: "",
                 initialKindRefKey: OutputProductState.LastKindRefKey,
-                initialKindName: OutputProductState.LastKindName);
+                initialKindName: OutputProductState.LastKindName,
+                initialProduct: _outputProduct);
             new WindowInteropHelper(window).Owner = new WindowInteropHelper(this).Handle;
 
             if (window.ShowDialog() == true && window.SelectedProduct != null)
@@ -220,6 +227,7 @@ namespace RevitApi_3
                 string endDate = FormatDate(EndDatePicker.SelectedDate);
                 string author = (AuthorBox.Text ?? "").Trim();
                 ErpItem outputProduct = _outputProduct;
+                string costArticleRef = (CostArticleCombo.SelectedItem as RefNamedItem)?.RefKey;
                 string response = await Task.Run(() => ErpClient.ExportResources(
                     title,
                     _contextInfo,
@@ -227,7 +235,9 @@ namespace RevitApi_3
                     endDate,
                     author,
                     _table,
-                    outputProduct));
+                    outputProduct,
+                    costArticleRef,
+                    _skippedRowCount > 0));
 
                 ExportSucceeded = true;
                 _last1cLink = TryExtract1cLink(response);
@@ -242,11 +252,12 @@ namespace RevitApi_3
                     }
                 }
 
-                SuccessText.Text = "Спецификация успешно создана";
+                SuccessText.Text = "Спецификация успешно создана" + (_skippedRowCount > 0
+                    ? $". Пропущено строк без кода 1C-ERP: {_skippedRowCount}" : "");
                 Open1cLinkBlock.Visibility = string.IsNullOrWhiteSpace(_last1cLink)
                     ? Visibility.Collapsed
                     : Visibility.Visible;
-                MessageBox.Show("Выгрузка успешно выполнена.", "ERP",
+                MessageBox.Show(SuccessText.Text, "ERP",
                     MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
@@ -262,6 +273,8 @@ namespace RevitApi_3
 
         private async Task<bool> RunValidateAsync(bool showOkMessage)
         {
+            if (_isBusy) return false;
+            _skippedRowCount = 0;
             ExportGrid.CommitEdit(DataGridEditingUnit.Cell, true);
             ExportGrid.CommitEdit(DataGridEditingUnit.Row, true);
             ClearValidationUi();
@@ -280,21 +293,36 @@ namespace RevitApi_3
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return false;
             }
+            if (!(CostArticleCombo.SelectedItem is RefNamedItem costArticle))
+            {
+                MarkFieldError("cost_article_ref", "Выберите статью калькуляции материалов.");
+                MessageBox.Show("Выберите статью калькуляции материалов.", "ERP",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return false;
+            }
 
             List<ScheduleMirrorRow> missingCodes = _table.ResourceRows
                 .Where(x => x.HasMissingErpCode)
                 .ToList();
+            if (!_table.ResourceRows.Any(x => !x.HasMissingErpCode))
+            {
+                MessageBox.Show("Нет строк с заполненным кодом 1C-ERP для выгрузки.", "ERP",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return false;
+            }
             if (missingCodes.Count > 0)
             {
                 ExportGrid.Items.Refresh();
                 ScheduleMirrorRow first = missingCodes[0];
                 ExportGrid.SelectedItem = first;
                 ExportGrid.ScrollIntoView(first);
-                MessageBox.Show(
-                    $"Есть строки ресурсов без кода 1C-ERP: {missingCodes.Count}. " +
-                    "Выполните сопоставление активной спецификации.",
-                    "ERP", MessageBoxButton.OK, MessageBoxImage.Error);
-                return false;
+                if (!showOkMessage && MessageBox.Show(
+                    $"Не заполнен код 1C-ERP у {missingCodes.Count} строк номенклатуры.\n" +
+                    "Эти строки не попадут в ресурсную спецификацию. Продолжить?",
+                    "ERP", MessageBoxButton.YesNo, MessageBoxImage.Warning,
+                    MessageBoxResult.No) != MessageBoxResult.Yes)
+                    return false;
+                _skippedRowCount = missingCodes.Count;
             }
 
             SetBusy(true, "Проверка данных в ERP…");
@@ -313,13 +341,16 @@ namespace RevitApi_3
                         endDate,
                         author,
                         _table,
-                        outputProduct));
+                        outputProduct,
+                        costArticle.RefKey,
+                        _skippedRowCount > 0));
 
                 ApplyValidationResult(result);
                 if (result == null || !result.HasErrors)
                 {
                     if (showOkMessage)
-                        MessageBox.Show("Проверка успешна.", "ERP",
+                        MessageBox.Show("Проверка успешна." + (result?.Warnings.Count > 0
+                            ? "\n" + string.Join("\n", result.Warnings) : ""), "ERP",
                             MessageBoxButton.OK, MessageBoxImage.Information);
                     return true;
                 }
@@ -405,12 +436,15 @@ namespace RevitApi_3
             ResetField(AuthorBox);
             ResetField(StartDatePicker);
             ResetField(EndDatePicker);
+            ResetField(CostArticleCombo);
         }
 
         private void MarkFieldError(string key, string message)
         {
             string normalized = (key ?? "").ToLowerInvariant();
-            if (normalized.Contains("title") || normalized.Contains("name"))
+            if (normalized.Contains("cost_article"))
+                SetFieldError(CostArticleCombo, message);
+            else if (normalized.Contains("title") || normalized.Contains("name"))
                 SetFieldError(TitleBox, message);
             else if (normalized.Contains("author") || normalized.Contains("creator"))
                 SetFieldError(AuthorBox, message);
@@ -444,6 +478,7 @@ namespace RevitApi_3
             BtnCheck.IsEnabled = !busy;
             BtnExport.IsEnabled = !busy;
             BtnPickOutput.IsEnabled = !busy && _treeRoots.Count > 0;
+            CostArticleCombo.IsEnabled = !busy && _referencesLoaded;
             ExportGrid.IsEnabled = !busy;
             TitleBox.IsEnabled = !busy;
             StartDatePicker.IsEnabled = !busy;

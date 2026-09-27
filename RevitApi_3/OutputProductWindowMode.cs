@@ -16,5 +16,6 @@ namespace RevitApi_3
     {
         public static string LastKindRefKey; // lastKindRef
         public static string LastKindName;   // lastKindName
+        public static ErpItem LastProduct;
     }
 }

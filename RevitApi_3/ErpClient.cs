@@ -27,6 +27,7 @@ namespace RevitApi_3
         private static string ValidateUrl => $"{BaseUrl}/api/v1/revit/resource/validate/";
         private static string ValidateNomenclatureUrl => $"{BaseUrl}/api/v1/revit/nomen/validate/";
         private static string StagesUrl => $"{BaseUrl}/api/v1/revit/nomen/stages/form/";
+        private static string CostArticlesUrl => $"{BaseUrl}/api/v1/revit/resource/cost_articles/";
         private static string LinkCheckUrl => $"{BaseUrl}/api/v1/revit/resource/link_exists/";
 
 
@@ -140,9 +141,13 @@ namespace RevitApi_3
         }
 
         /// <summary>Загрузка дерева классификатора.</summary>
-        public static List<ErpTreeNode> LoadErpTree()
+        public static List<ErpTreeNode> LoadErpTree(string source = "main")
         {
-            var requestObj = new { action = "get_classifier_tree" };
+            var requestObj = new
+            {
+                action = "get_classifier_tree",
+                source = string.IsNullOrWhiteSpace(source) ? "main" : source.Trim()
+            };
             string json = JsonConvert.SerializeObject(requestObj);
 
             string response = PostJson(TreeUrl, json, out _);
@@ -174,6 +179,17 @@ namespace RevitApi_3
             }
 
             return roots;
+        }
+
+        public static List<RefNamedItem> LoadCostArticles()
+        {
+            string response = PostJson(CostArticlesUrl,
+                JsonConvert.SerializeObject(new { action = "get_cost_articles" }), out _);
+            var dtos = JsonConvert.DeserializeObject<List<RefNamedItemDto>>(response)
+                       ?? new List<RefNamedItemDto>();
+            return dtos.Where(x => !string.IsNullOrWhiteSpace(x.Ref_Key))
+                .Select(x => new RefNamedItem { RefKey = x.Ref_Key, Name = x.Description })
+                .ToList();
         }
 
         /// <summary>Коды (номенклатура) по выбранному узлу дерева.</summary>
@@ -454,7 +470,9 @@ namespace RevitApi_3
             string endDate,
             string authorFullName,
             ScheduleMirrorTable table,
-            ErpItem outputProduct)
+            ErpItem outputProduct,
+            string costArticleRef = null,
+            bool skipUnmappedRows = false)
         {
             if (table == null)
                 throw new ArgumentNullException(nameof(table));
@@ -462,7 +480,8 @@ namespace RevitApi_3
                 throw new ArgumentNullException(nameof(outputProduct));
 
             JObject payload = BuildResourcePayload(
-                title, context, startDate, endDate, authorFullName, table, outputProduct);
+                title, context, startDate, endDate, authorFullName, table, outputProduct,
+                costArticleRef, skipUnmappedRows);
             string json = payload.ToString(Formatting.None);
             HttpStatusCode statusCode;
             string response = PostJson(ExportResourcesUrl, json, out statusCode);
@@ -483,6 +502,7 @@ namespace RevitApi_3
         {
             public Dictionary<string, string> FieldErrors { get; set; } = new Dictionary<string, string>();
             public List<ResourceTableError> TableErrors { get; set; } = new List<ResourceTableError>();
+            public List<string> Warnings { get; set; } = new List<string>();
             public bool HasErrors =>
                 (FieldErrors != null && FieldErrors.Count > 0) ||
                 (TableErrors != null && TableErrors.Count > 0);
@@ -499,7 +519,9 @@ namespace RevitApi_3
             string endDate,
             string authorFullName,
             ScheduleMirrorTable table,
-            ErpItem outputProduct)
+            ErpItem outputProduct,
+            string costArticleRef = null,
+            bool skipUnmappedRows = false)
         {
             if (table == null)
                 throw new ArgumentNullException(nameof(table));
@@ -507,7 +529,8 @@ namespace RevitApi_3
                 throw new ArgumentNullException(nameof(outputProduct));
 
             JObject payload = BuildResourcePayload(
-                title, context, startDate, endDate, authorFullName, table, outputProduct);
+                title, context, startDate, endDate, authorFullName, table, outputProduct,
+                costArticleRef, skipUnmappedRows);
             string json = payload.ToString(Formatting.None);
 
             HttpStatusCode status;
@@ -519,6 +542,8 @@ namespace RevitApi_3
             try
             {
                 var jo = JObject.Parse(body);
+                result.Warnings = (jo["warnings"] as JArray)?.ToObject<List<string>>()
+                                  ?? new List<string>();
 
                 var fe = jo["field_errors"] as JObject;
                 if (fe != null)
@@ -556,16 +581,13 @@ namespace RevitApi_3
             }
             catch
             {
-                if (status == HttpStatusCode.OK)
-                    return result;
-
                 throw new Exception("ValidateResources: сервер вернул не-JSON: " + body);
             }
 
             if (status == HttpStatusCode.OK)
                 return result;
 
-            if (status == HttpStatusCode.BadRequest)
+            if (status == HttpStatusCode.BadRequest && result.HasErrors)
                 return result;
 
             throw new Exception("ValidateResources: неожиданный статус " + (int)status + ", тело: " + body);
@@ -583,7 +605,9 @@ namespace RevitApi_3
             string endDate,
             string authorFullName,
             ScheduleMirrorTable table,
-            ErpItem outputProduct)
+            ErpItem outputProduct,
+            string costArticleRef,
+            bool skipUnmappedRows)
         {
             var columns = new JArray(table.Columns
                 .OrderBy(x => x.Index)
@@ -656,6 +680,8 @@ namespace RevitApi_3
                 ["creator"] = authorFullName ?? "",
                 ["start_date"] = startDate ?? "",
                 ["end_date"] = endDate ?? "",
+                ["cost_article_ref"] = costArticleRef == null ? JValue.CreateNull() : new JValue(costArticleRef),
+                ["skip_unmapped_rows"] = skipUnmappedRows,
                 ["output_product"] = JObject.FromObject(new
                 {
                     code = outputProduct.Code,
