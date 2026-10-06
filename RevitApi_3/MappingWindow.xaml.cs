@@ -134,7 +134,7 @@ namespace RevitApi_3
             SetErpStatus("Загрузка дерева видов номенклатуры…", true);
             try
             {
-                List<ErpTreeNode> roots = await Task.Run(() => ErpClient.LoadErpTree());
+                List<ErpTreeNode> roots = await Task.Run(() => ErpClient.LoadErpTree("revit_mapping"));
                 if (_isClosed || requestVersion != _erpRequestVersion) return;
                 ErpTree.ItemsSource = roots;
                 if (ChkGlobalSearch.IsChecked == true) return;

@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace RevitApi_3
 {
@@ -23,6 +24,9 @@ namespace RevitApi_3
         private string _selectedKindName;
         private int _loadVersion;
         private bool _isBusy;
+        private bool _isClosed;
+        private string _restoreProductCode;
+        private string _restoreKindRefKey;
 
         public ErpItem SelectedProduct { get; private set; }
 
@@ -33,7 +37,8 @@ namespace RevitApi_3
             OutputProductWindowMode mode,
             string initialName = "",
             string initialKindRefKey = null,
-            string initialKindName = null)
+            string initialKindName = null,
+            ErpItem initialProduct = null)
         {
             InitializeComponent();
 
@@ -55,8 +60,17 @@ namespace RevitApi_3
             // имя в форму
             NameBox.Text = (initialName ?? "").Trim();
 
-            // вид номенклатуры: приоритет — явно переданный, иначе lastKind
-            if (!string.IsNullOrWhiteSpace(initialKindRefKey))
+            // Restore the accepted product, not the kind merely browsed before Cancel.
+            ErpItem previousProduct = initialProduct ??
+                (mode == OutputProductWindowMode.PickOrCreate ? OutputProductState.LastProduct : null);
+            if (!string.IsNullOrWhiteSpace(previousProduct?.KindRefKey))
+            {
+                _selectedKindRefKey = previousProduct.KindRefKey;
+                _selectedKindName = previousProduct.KindName ?? "";
+                _restoreProductCode = previousProduct.Code;
+                _restoreKindRefKey = previousProduct.KindRefKey;
+            }
+            else if (!string.IsNullOrWhiteSpace(initialKindRefKey))
             {
                 _selectedKindRefKey = initialKindRefKey;
                 _selectedKindName = initialKindName ?? "";
@@ -73,10 +87,11 @@ namespace RevitApi_3
             Loaded += (s, e) =>
             {
                 ApplyMode();
-                // (best-effort) попробуем подсветить узел в дереве
                 if (!string.IsNullOrWhiteSpace(_selectedKindRefKey))
-                    TrySelectNodeByRefKey(_selectedKindRefKey);
+                    Dispatcher.BeginInvoke(new Action(() => TrySelectNodeByRefKey(_selectedKindRefKey)),
+                        DispatcherPriority.Loaded);
             };
+            Closed += (s, e) => { _isClosed = true; ++_loadVersion; };
         }
 
         private void ApplyMode()
@@ -115,24 +130,23 @@ namespace RevitApi_3
             _selectedKindName = node.Description;
             KindLabel.Text = _selectedKindName ?? "";
 
-            // lastKind
-            OutputProductState.LastKindRefKey = _selectedKindRefKey;
-            OutputProductState.LastKindName = _selectedKindName;
-
             // В CreateOnly коды не нужны
             if (_mode == OutputProductWindowMode.CreateOnly)
                 return;
 
             int loadVersion = ++_loadVersion;
+            _codesFull.Clear();
+            RebuildCodesView();
             SetBusy(true);
             try
             {
                 List<ErpItem> loaded = await Task.Run(() => ErpClient.LoadErpItems(node.RefKey));
-                if (loadVersion != _loadVersion) return;
+                if (_isClosed || loadVersion != _loadVersion) return;
                 _codesFull = loaded ?? new List<ErpItem>();
             }
             catch (Exception ex)
             {
+                if (_isClosed || loadVersion != _loadVersion) return;
                 MessageBox.Show("Ошибка при загрузке номенклатуры: " + ex.Message,
                     "ERP", MessageBoxButton.OK, MessageBoxImage.Error);
                 _codesFull = new List<ErpItem>();
@@ -140,7 +154,7 @@ namespace RevitApi_3
 
             finally
             {
-                if (loadVersion == _loadVersion)
+                if (!_isClosed && loadVersion == _loadVersion)
                 {
                     RebuildCodesView();
                     SetBusy(false);
@@ -155,6 +169,11 @@ namespace RevitApi_3
 
         private void RebuildCodesView()
         {
+            if (CodesGrid == null) return;
+            string selectedCode = (CodesGrid.SelectedItem as ErpItem)?.Code;
+            if (string.IsNullOrWhiteSpace(selectedCode) &&
+                string.Equals(_selectedKindRefKey, _restoreKindRefKey, StringComparison.OrdinalIgnoreCase))
+                selectedCode = _restoreProductCode;
             string term = (SearchBox?.Text ?? "").Trim().ToLowerInvariant();
 
             _codesView = new List<ErpItem>();
@@ -176,6 +195,13 @@ namespace RevitApi_3
 
             CodesGrid.ItemsSource = _codesView;
             CodesGrid.Items.Refresh();
+            ErpItem selected = _codesView.FirstOrDefault(x =>
+                string.Equals(x.Code, selectedCode, StringComparison.OrdinalIgnoreCase));
+            if (selected != null)
+            {
+                CodesGrid.SelectedItem = selected;
+                CodesGrid.ScrollIntoView(selected);
+            }
         }
 
         private void BtnOk_Click(object sender, RoutedEventArgs e)
@@ -189,8 +215,7 @@ namespace RevitApi_3
                 return;
             }
 
-            SelectedProduct = erp;
-            SelectedProductLabel.Text = erp.Name + " (" + erp.Code + ")";
+            AcceptProduct(erp);
             DialogResult = true;
         }
 
@@ -248,8 +273,7 @@ namespace RevitApi_3
                     ErpItem created = await Task.Run(() =>
                         ErpClient.CreateNomenclature(kindRef, typeRef, unitRef, name, article));
 
-                    SelectedProduct = created;
-                    SelectedProductLabel.Text = created.Name + " (" + created.Code + ")";
+                    AcceptProduct(created);
                     DialogResult = true;
                     return;
                 }
@@ -424,44 +448,58 @@ namespace RevitApi_3
             }
         }
 
-        // --- best effort: выделить узел дерева по RefKey ---
+        private void AcceptProduct(ErpItem product)
+        {
+            product.KindRefKey = _selectedKindRefKey;
+            product.KindName = _selectedKindName;
+            SelectedProduct = product;
+            SelectedProductLabel.Text = product.Name + " (" + product.Code + ")";
+            OutputProductState.LastKindRefKey = _selectedKindRefKey;
+            OutputProductState.LastKindName = _selectedKindName;
+            OutputProductState.LastProduct = product;
+        }
+
+        // Search the data first; expand only the ancestors of the selected kind.
         private void TrySelectNodeByRefKey(string refKey)
         {
-            if (string.IsNullOrWhiteSpace(refKey)) return;
-
-            Tree.UpdateLayout();
-
-            foreach (var root in _roots)
+            if (_isClosed || string.IsNullOrWhiteSpace(refKey)) return;
+            var path = new List<ErpTreeNode>();
+            if (!FindNodePath(_roots, refKey, path, new HashSet<string>(StringComparer.OrdinalIgnoreCase)))
             {
-                if (TrySelectNodeRecursive(Tree, root, refKey))
-                    break;
+                _selectedKindRefKey = null;
+                _selectedKindName = null;
+                KindLabel.Text = "Ранее выбранный вид недоступен. Выберите другой вид.";
+                return;
+            }
+            ItemsControl parent = Tree;
+            for (int index = 0; index < path.Count; index++)
+            {
+                parent.UpdateLayout();
+                var container = parent.ItemContainerGenerator.ContainerFromItem(path[index]) as TreeViewItem;
+                if (container == null) return;
+                if (index == path.Count - 1)
+                {
+                    container.IsSelected = true;
+                    container.BringIntoView();
+                }
+                else
+                    container.IsExpanded = true;
+                parent = container;
             }
         }
 
-        private bool TrySelectNodeRecursive(ItemsControl parent, ErpTreeNode node, string refKey)
+        private static bool FindNodePath(IEnumerable<ErpTreeNode> nodes, string refKey,
+            List<ErpTreeNode> path, HashSet<string> visited)
         {
-            if (node == null) return false;
-
-            var container = parent.ItemContainerGenerator.ContainerFromItem(node) as TreeViewItem;
-            if (container == null)
-                return false;
-
-            if (string.Equals(node.RefKey, refKey, StringComparison.OrdinalIgnoreCase))
+            foreach (ErpTreeNode node in nodes)
             {
-                container.IsSelected = true;
-                container.BringIntoView();
-                return true;
-            }
-
-            container.IsExpanded = true;
-            container.UpdateLayout();
-
-            foreach (var ch in node.Children)
-            {
-                if (TrySelectNodeRecursive(container, ch, refKey))
+                if (node == null || !visited.Add(node.RefKey ?? "")) continue;
+                path.Add(node);
+                if (string.Equals(node.RefKey, refKey, StringComparison.OrdinalIgnoreCase) ||
+                    FindNodePath(node.Children, refKey, path, visited))
                     return true;
+                path.RemoveAt(path.Count - 1);
             }
-
             return false;
         }
     }

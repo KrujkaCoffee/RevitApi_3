@@ -21,6 +21,8 @@ namespace RevitApi_3
         public string Name { get; set; }
         public string Extra { get; set; }
         public string Unit { get; set; }
+        public string KindRefKey { get; set; }
+        public string KindName { get; set; }
     }
 
     // Узел дерева классификатора

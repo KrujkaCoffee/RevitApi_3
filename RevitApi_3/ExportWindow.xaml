@@ -32,6 +32,13 @@
             <TextBlock x:Name="FieldErrorsText" Foreground="Red" TextWrapping="Wrap"/>
             <TextBlock x:Name="DiagnosticText" Foreground="DarkOrange" TextWrapping="Wrap"/>
 
+            <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
+                <TextBlock Text="Статья калькуляции материалов:" VerticalAlignment="Center"/>
+                <ComboBox x:Name="CostArticleCombo" Width="420" Margin="6,0,0,0"
+                          DisplayMemberPath="Name" SelectedValuePath="RefKey"
+                          IsTextSearchEnabled="True" IsEnabled="False"/>
+            </StackPanel>
+
             <GroupBox Header="Выпускаемое изделие" Margin="0,5,0,0">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="Наименование:" VerticalAlignment="Center"/>
