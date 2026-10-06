@@ -25,6 +25,8 @@ namespace RevitApi_3
 
         private readonly ObservableCollection<RefNamedItem> _stages =
             new ObservableCollection<RefNamedItem>();
+        private readonly ObservableCollection<RefNamedItem> _costArticles =
+            new ObservableCollection<RefNamedItem>();
         private readonly ObservableCollection<TableErrorVm> _tableErrors =
             new ObservableCollection<TableErrorVm>();
 
@@ -108,6 +110,19 @@ namespace RevitApi_3
                 },
                 MinWidth = 120
             });
+            ExportGrid.Columns.Add(new DataGridComboBoxColumn
+            {
+                Header = "Статья калькуляции",
+                ItemsSource = _costArticles,
+                DisplayMemberPath = nameof(RefNamedItem.Name),
+                SelectedValuePath = nameof(RefNamedItem.RefKey),
+                SelectedValueBinding = new Binding(nameof(ScheduleMirrorRow.CostArticleRef))
+                {
+                    Mode = BindingMode.TwoWay,
+                    UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
+                },
+                MinWidth = 200
+            });
 
             foreach (ScheduleMirrorColumn column in _table.Columns.OrderBy(x => x.Index))
             {
@@ -158,10 +173,17 @@ namespace RevitApi_3
                 foreach (RefNamedItem stage in stagesTask.Result ?? new List<RefNamedItem>())
                     _stages.Add(stage);
 
-                CostArticleCombo.ItemsSource = articlesTask.Result;
+                _costArticles.Clear();
+                foreach (RefNamedItem article in articlesTask.Result)
+                    _costArticles.Add(article);
+                RefNamedItem defaultArticle = _costArticles.FirstOrDefault();
+                if (defaultArticle != null)
+                    foreach (ScheduleMirrorRow row in _table.ResourceRows)
+                        if (string.IsNullOrWhiteSpace(row.CostArticleRef))
+                            row.CostArticleRef = defaultArticle.RefKey;
                 _referencesLoaded = true;
-                SetBusy(false, articlesTask.Result.Count > 0
-                    ? "Справочники ERP загружены. Выберите статью калькуляции."
+                SetBusy(false, defaultArticle != null
+                    ? "Статья по умолчанию: " + defaultArticle.Name + ". Её можно изменить в каждой строке."
                     : "В заданной группе нет доступных статей калькуляции.");
             }
             catch (Exception ex)
@@ -227,7 +249,6 @@ namespace RevitApi_3
                 string endDate = FormatDate(EndDatePicker.SelectedDate);
                 string author = (AuthorBox.Text ?? "").Trim();
                 ErpItem outputProduct = _outputProduct;
-                string costArticleRef = (CostArticleCombo.SelectedItem as RefNamedItem)?.RefKey;
                 string response = await Task.Run(() => ErpClient.ExportResources(
                     title,
                     _contextInfo,
@@ -236,7 +257,6 @@ namespace RevitApi_3
                     author,
                     _table,
                     outputProduct,
-                    costArticleRef,
                     _skippedRowCount > 0));
 
                 ExportSucceeded = true;
@@ -273,7 +293,7 @@ namespace RevitApi_3
 
         private async Task<bool> RunValidateAsync(bool showOkMessage)
         {
-            if (_isBusy) return false;
+            if (_isBusy || !_referencesLoaded) return false;
             _skippedRowCount = 0;
             ExportGrid.CommitEdit(DataGridEditingUnit.Cell, true);
             ExportGrid.CommitEdit(DataGridEditingUnit.Row, true);
@@ -293,11 +313,20 @@ namespace RevitApi_3
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return false;
             }
-            if (!(CostArticleCombo.SelectedItem is RefNamedItem costArticle))
+            List<ScheduleMirrorRow> missingArticles = _table.ResourceRows
+                .Where(x => !x.HasMissingErpCode && string.IsNullOrWhiteSpace(x.CostArticleRef))
+                .ToList();
+            if (missingArticles.Count > 0)
             {
-                MarkFieldError("cost_article_ref", "Выберите статью калькуляции материалов.");
-                MessageBox.Show("Выберите статью калькуляции материалов.", "ERP",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                foreach (ScheduleMirrorRow row in missingArticles)
+                    _tableErrors.Add(new TableErrorVm
+                    {
+                        SourceRow = row.SourceRowNumber,
+                        Msg = "Выберите статью калькуляции."
+                    });
+                ErrorsExpander.Visibility = Visibility.Visible;
+                ExportGrid.SelectedItem = missingArticles[0];
+                ExportGrid.ScrollIntoView(missingArticles[0]);
                 return false;
             }
 
@@ -342,7 +371,6 @@ namespace RevitApi_3
                         author,
                         _table,
                         outputProduct,
-                        costArticle.RefKey,
                         _skippedRowCount > 0));
 
                 ApplyValidationResult(result);
@@ -436,15 +464,12 @@ namespace RevitApi_3
             ResetField(AuthorBox);
             ResetField(StartDatePicker);
             ResetField(EndDatePicker);
-            ResetField(CostArticleCombo);
         }
 
         private void MarkFieldError(string key, string message)
         {
             string normalized = (key ?? "").ToLowerInvariant();
-            if (normalized.Contains("cost_article"))
-                SetFieldError(CostArticleCombo, message);
-            else if (normalized.Contains("title") || normalized.Contains("name"))
+            if (normalized.Contains("title") || normalized.Contains("name"))
                 SetFieldError(TitleBox, message);
             else if (normalized.Contains("author") || normalized.Contains("creator"))
                 SetFieldError(AuthorBox, message);
@@ -475,10 +500,9 @@ namespace RevitApi_3
         private void SetBusy(bool busy, string status)
         {
             _isBusy = busy;
-            BtnCheck.IsEnabled = !busy;
-            BtnExport.IsEnabled = !busy;
+            BtnCheck.IsEnabled = !busy && _referencesLoaded && _costArticles.Count > 0;
+            BtnExport.IsEnabled = !busy && _referencesLoaded && _costArticles.Count > 0;
             BtnPickOutput.IsEnabled = !busy && _treeRoots.Count > 0;
-            CostArticleCombo.IsEnabled = !busy && _referencesLoaded;
             ExportGrid.IsEnabled = !busy;
             TitleBox.IsEnabled = !busy;
             StartDatePicker.IsEnabled = !busy;
