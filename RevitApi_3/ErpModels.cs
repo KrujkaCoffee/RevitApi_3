@@ -86,6 +86,7 @@ namespace RevitApi_3
     public sealed class ScheduleMirrorRow : INotifyPropertyChanged
     {
         private string _stage = "";
+        private string _costArticleRef = "";
         private string _erpCode = "";
         private string _erpName1c = "";
 
@@ -109,6 +110,12 @@ namespace RevitApi_3
         {
             get => _stage;
             set { _stage = value ?? ""; OnPropertyChanged(); }
+        }
+
+        public string CostArticleRef
+        {
+            get => _costArticleRef;
+            set { _costArticleRef = value ?? ""; OnPropertyChanged(); }
         }
 
         /// <summary>Код, который будет записан в экземпляры или отправлен в ERP.</summary>

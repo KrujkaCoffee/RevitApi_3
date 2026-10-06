@@ -471,7 +471,6 @@ namespace RevitApi_3
             string authorFullName,
             ScheduleMirrorTable table,
             ErpItem outputProduct,
-            string costArticleRef = null,
             bool skipUnmappedRows = false)
         {
             if (table == null)
@@ -481,7 +480,7 @@ namespace RevitApi_3
 
             JObject payload = BuildResourcePayload(
                 title, context, startDate, endDate, authorFullName, table, outputProduct,
-                costArticleRef, skipUnmappedRows);
+                skipUnmappedRows);
             string json = payload.ToString(Formatting.None);
             HttpStatusCode statusCode;
             string response = PostJson(ExportResourcesUrl, json, out statusCode);
@@ -520,7 +519,6 @@ namespace RevitApi_3
             string authorFullName,
             ScheduleMirrorTable table,
             ErpItem outputProduct,
-            string costArticleRef = null,
             bool skipUnmappedRows = false)
         {
             if (table == null)
@@ -530,18 +528,21 @@ namespace RevitApi_3
 
             JObject payload = BuildResourcePayload(
                 title, context, startDate, endDate, authorFullName, table, outputProduct,
-                costArticleRef, skipUnmappedRows);
+                skipUnmappedRows);
             string json = payload.ToString(Formatting.None);
 
             HttpStatusCode status;
             string body = PostJson(ValidateUrl, json, out status);
 
             var result = new ResourceValidationResult();
+            bool rowCostArticlesSupported = false;
 
             // если сервер вернул JSON с ошибками — распарсим
             try
             {
                 var jo = JObject.Parse(body);
+                rowCostArticlesSupported = jo["row_cost_articles_supported"]?.Type == JTokenType.Boolean &&
+                    jo["row_cost_articles_supported"].Value<bool>();
                 result.Warnings = (jo["warnings"] as JArray)?.ToObject<List<string>>()
                                   ?? new List<string>();
 
@@ -585,7 +586,11 @@ namespace RevitApi_3
             }
 
             if (status == HttpStatusCode.OK)
+            {
+                if (!rowCostArticlesSupported)
+                    throw new Exception("Обновите API: сервер не подтвердил поддержку статьи калькуляции в каждой строке.");
                 return result;
+            }
 
             if (status == HttpStatusCode.BadRequest && result.HasErrors)
                 return result;
@@ -606,7 +611,6 @@ namespace RevitApi_3
             string authorFullName,
             ScheduleMirrorTable table,
             ErpItem outputProduct,
-            string costArticleRef,
             bool skipUnmappedRows)
         {
             var columns = new JArray(table.Columns
@@ -654,6 +658,7 @@ namespace RevitApi_3
                     ["source_row"] = row.SourceRowNumber,
                     ["stage"] = row.Stage ?? "",
                     ["Stage"] = row.Stage ?? "",
+                    ["cost_article_ref"] = row.CostArticleRef ?? "",
                     ["erp_code"] = row.ErpCode ?? "",
                     ["ErpCode"] = row.ErpCode ?? "",
                     ["unit"] = FindValue(table, row, "единица измерения", "ед. изм", "unit"),
@@ -680,7 +685,6 @@ namespace RevitApi_3
                 ["creator"] = authorFullName ?? "",
                 ["start_date"] = startDate ?? "",
                 ["end_date"] = endDate ?? "",
-                ["cost_article_ref"] = costArticleRef == null ? JValue.CreateNull() : new JValue(costArticleRef),
                 ["skip_unmapped_rows"] = skipUnmappedRows,
                 ["output_product"] = JObject.FromObject(new
                 {
